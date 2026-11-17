@@ -365,7 +365,7 @@ private fun ZoiChatScreen(
                         overlayPermissionLauncher.launch(permissionIntent)
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(42.dp),
+                modifier = Modifier.weight(1f).height(42.dp),
                 shape = RoundedCornerShape(13.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF1D2A39),
