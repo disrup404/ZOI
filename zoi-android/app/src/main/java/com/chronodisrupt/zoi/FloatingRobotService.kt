@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.Context
 import android.content.pm.ServiceInfo
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -214,12 +215,14 @@ private class FloatingRobotView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val params = (context.getSystemService(WINDOW_SERVICE) as WindowManager)
-        val lp = (layoutParams as? WindowManager.LayoutParams)
+        val manager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val lp = this.layoutParams as? WindowManager.LayoutParams
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
                 downRawX = event.rawX
                 downRawY = event.rawY
+                startX = lp?.x ?: 0
+                startY = lp?.y ?: 0
                 moved = false
                 return true
             }
@@ -230,16 +233,13 @@ private class FloatingRobotView(
                 val current = lp ?: return true
                 current.x = startX + dx.toInt()
                 current.y = startY + dy.toInt()
-                try { params.updateViewLayout(this, current) } catch (_: Exception) {}
+                try { manager.updateViewLayout(this, current) } catch (_: Exception) {}
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 val dx = event.rawX - downRawX
                 val dy = event.rawY - downRawY
-                if (moved) {
-                    startX += dx.toInt()
-                    startY += dy.toInt()
-                } else {
+                if (!moved) {
                     onTap()
                 }
                 performClick()
