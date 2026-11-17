@@ -268,6 +268,21 @@ private fun ZoiChatScreen(
         })
     }
 
+    val wakeWordPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            try {
+                context.startForegroundService(Intent(context, WakeWordService::class.java))
+                errorText = ""
+            } catch (_: Exception) {
+                errorText = "I couldn't start wake-word listening. Open Zoi and try again."
+            }
+        } else {
+            errorText = "Microphone permission is required for Hello Zoi wake-word listening."
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -321,9 +336,26 @@ private fun ZoiChatScreen(
             }
 
             Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = {
-                    if (Settings.canDrawOverlays(context)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        wakeWordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    modifier = Modifier.weight(1f).height(42.dp),
+                    shape = RoundedCornerShape(13.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF34271F),
+                        contentColor = Color(0xFFFFC080)
+                    )
+                ) {
+                    Text("ENABLE HELLO ZOI", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                }
+                Button(
+                    onClick = {
+                        if (Settings.canDrawOverlays(context)) {
                         context.startForegroundService(Intent(context, FloatingRobotService::class.java))
                     } else {
                         val permissionIntent = Intent(
@@ -340,7 +372,8 @@ private fun ZoiChatScreen(
                     contentColor = Color(0xFFFFB36A)
                 )
             ) {
-                Text("ENABLE FLOATING ROBOT", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+                Text("ENABLE FLOATING ROBOT", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                }
             }
 
             Spacer(Modifier.height(4.dp))
