@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
@@ -168,6 +169,13 @@ private fun ZoiChatScreen(
     onStopListening: () -> Unit
 ) {
     val context = LocalContext.current
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Settings.canDrawOverlays(context)) {
+            context.startForegroundService(Intent(context, FloatingRobotService::class.java))
+        }
+    }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -310,6 +318,29 @@ private fun ZoiChatScreen(
                     Box(Modifier.size(6.dp).background(if (busy) Color(0xFFFFB45B) else Color(0xFF5DE0BD), CircleShape))
                     Text(status, color = Color(0xFF91A4B8), fontSize = 9.sp, letterSpacing = 1.sp)
                 }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = {
+                    if (Settings.canDrawOverlays(context)) {
+                        context.startForegroundService(Intent(context, FloatingRobotService::class.java))
+                    } else {
+                        val permissionIntent = Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        overlayPermissionLauncher.launch(permissionIntent)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(42.dp),
+                shape = RoundedCornerShape(13.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF1D2A39),
+                    contentColor = Color(0xFFFFB36A)
+                )
+            ) {
+                Text("ENABLE FLOATING ROBOT", fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
             }
 
             Spacer(Modifier.height(4.dp))
