@@ -2,6 +2,7 @@ package com.chronodisrupt.zoi
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -72,6 +73,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -165,6 +167,7 @@ private fun ZoiChatScreen(
     onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
     onStopListening: () -> Unit
 ) {
+    val context = LocalContext.current
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -179,6 +182,33 @@ private fun ZoiChatScreen(
         errorText = ""
         messages.add(ChatMessage("user", text))
         input = ""
+
+        // Run supported app-launch requests on Android itself. The AI model
+        // never generates arbitrary intents or commands.
+        val appCommand = matchAppLaunchCommand(text)
+        if (appCommand != null) {
+            val (appName, packageName) = appCommand
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                try {
+                    context.startActivity(launchIntent)
+                    val reply = "Opening $appName."
+                    messages.add(ChatMessage("assistant", reply))
+                    onSpeak(reply)
+                } catch (_: Exception) {
+                    val reply = "I couldn't open $appName. Please try opening it manually."
+                    messages.add(ChatMessage("assistant", reply))
+                    onSpeak(reply)
+                }
+            } else {
+                val reply = "$appName doesn't appear to be installed on this phone."
+                messages.add(ChatMessage("assistant", reply))
+                onSpeak(reply)
+            }
+            status = "SYSTEM ONLINE"
+            return
+        }
+
         busy = true
         status = "THINKING"
 
@@ -708,6 +738,36 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(line: String) {
         cursor = match.range.last + 1
     }
     append(line.substring(cursor))
+}
+
+
+/**
+ * Allowlisted app launcher. Only recognised app names map to package IDs;
+ * arbitrary model output is never executed as a device command.
+ */
+private fun matchAppLaunchCommand(message: String): Pair<String, String>? {
+    val pattern = Regex(
+        """(?i)^\\s*(?:(?:hey\\s+)?zoi[, ]*)?(?:please\\s+)?(?:can you\\s+|could you\\s+)?(?:open|launch|start)\\s+(?:the\\s+)?(.+?)\\s*[?.!]*$"""
+    )
+    val match = pattern.matchEntire(message.trim()) ?: return null
+    val target = match.groupValues[1]
+        .replace(Regex("""(?i)\\s+for me$"""), "")
+        .trim()
+        .lowercase(Locale.ROOT)
+
+    val apps = mapOf(
+        "youtube" to ("YouTube" to "com.google.android.youtube"),
+        "youtube app" to ("YouTube" to "com.google.android.youtube"),
+        "whatsapp" to ("WhatsApp" to "com.whatsapp"),
+        "whats app" to ("WhatsApp" to "com.whatsapp"),
+        "chrome" to ("Chrome" to "com.android.chrome"),
+        "google chrome" to ("Chrome" to "com.android.chrome"),
+        "google maps" to ("Google Maps" to "com.google.android.apps.maps"),
+        "maps" to ("Google Maps" to "com.google.android.apps.maps"),
+        "gmail" to ("Gmail" to "com.google.android.gm"),
+        "spotify" to ("Spotify" to "com.spotify.music")
+    )
+    return apps[target]
 }
 
 private const val API_BASE_URL = "https://zoi-core.onrender.com"
