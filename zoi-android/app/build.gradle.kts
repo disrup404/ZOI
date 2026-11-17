@@ -14,9 +14,6 @@ android {
         targetSdk = 35
         versionCode = 4
         versionName = "0.4.0"
-    }
-
-    defaultConfig {
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
