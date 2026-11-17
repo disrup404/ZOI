@@ -1,3 +1,4 @@
+
 package com.chronodisrupt.zoi
 
 import android.os.Bundle
@@ -21,8 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +35,7 @@ private enum class ZoiState {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             MaterialTheme {
                 ZoiScreen()
@@ -47,14 +49,45 @@ fun ZoiScreen() {
     var state by remember { mutableStateOf(ZoiState.IDLE) }
 
     val transition = rememberInfiniteTransition(label = "zoi")
-    val breathing by transition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.045f,
+
+    // Eye movement
+    val eyeShift by transition.animateFloat(
+        initialValue = -5f,
+        targetValue = 5f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1800),
+            animation = tween(
+                durationMillis = when (state) {
+                    ZoiState.IDLE -> 2200
+                    ZoiState.LISTENING -> 1200
+                    ZoiState.THINKING -> 500
+                    ZoiState.SPEAKING -> 1800
+                }
+            ),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "breathing"
+        label = "eye movement"
+    )
+
+    // Listening eye pulse
+    val eyeHeight by transition.animateFloat(
+        initialValue = 25f,
+        targetValue = 32f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "eye pulse"
+    )
+
+    // Speaking mouth animation
+    val mouthWidth by transition.animateFloat(
+        initialValue = 24f,
+        targetValue = 65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(350),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mouth movement"
     )
 
     val accent = when (state) {
@@ -85,6 +118,8 @@ fun ZoiScreen() {
             .padding(horizontal = 28.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+
+        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -111,16 +146,13 @@ fun ZoiScreen() {
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Robot face
         Box(
-            modifier = Modifier
-                .size(260.dp)
-                .graphicsLayer {
-                    val scale = if (state == ZoiState.IDLE) breathing else 1f
-                    scaleX = scale
-                    scaleY = scale
-                },
+            modifier = Modifier.size(260.dp),
             contentAlignment = Alignment.Center
         ) {
+
+            // Outer glow
             Box(
                 modifier = Modifier
                     .size(250.dp)
@@ -128,6 +160,7 @@ fun ZoiScreen() {
                     .background(accent.copy(alpha = 0.045f))
             )
 
+            // Robot head
             Column(
                 modifier = Modifier
                     .width(218.dp)
@@ -142,7 +175,10 @@ fun ZoiScreen() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+
+                // Eyes
                 Row(
+                    modifier = Modifier.offset(x = eyeShift.dp),
                     horizontalArrangement = Arrangement.spacedBy(38.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -151,7 +187,11 @@ fun ZoiScreen() {
                             modifier = Modifier
                                 .size(
                                     width = 29.dp,
-                                    height = if (state == ZoiState.SPEAKING) 18.dp else 29.dp
+                                    height = if (state == ZoiState.LISTENING) {
+                                        eyeHeight.dp
+                                    } else {
+                                        29.dp
+                                    }
                                 )
                                 .clip(CircleShape)
                                 .background(accent)
@@ -161,12 +201,19 @@ fun ZoiScreen() {
 
                 Spacer(modifier = Modifier.height(27.dp))
 
+                // Mouth
                 Box(
                     modifier = Modifier
                         .width(
-                            if (state == ZoiState.SPEAKING) 58.dp else 38.dp
+                            if (state == ZoiState.SPEAKING) {
+                                mouthWidth.dp
+                            } else {
+                                38.dp
+                            }
                         )
-                        .height(5.dp)
+                        .height(
+                            if (state == ZoiState.SPEAKING) 8.dp else 5.dp
+                        )
                         .clip(CircleShape)
                         .background(accent.copy(alpha = 0.8f))
                 )
@@ -175,6 +222,7 @@ fun ZoiScreen() {
 
         Spacer(modifier = Modifier.height(42.dp))
 
+        // Status
         Text(
             text = status,
             color = accent,
@@ -194,6 +242,7 @@ fun ZoiScreen() {
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Preview interaction
         Button(
             onClick = {
                 state = when (state) {
@@ -213,7 +262,11 @@ fun ZoiScreen() {
             )
         ) {
             Text(
-                text = if (state == ZoiState.IDLE) "PREVIEW INTERACTION" else "NEXT STATE",
+                text = if (state == ZoiState.IDLE) {
+                    "PREVIEW INTERACTION"
+                } else {
+                    "NEXT STATE"
+                },
                 fontSize = 12.sp,
                 letterSpacing = 2.sp,
                 fontWeight = FontWeight.Bold
