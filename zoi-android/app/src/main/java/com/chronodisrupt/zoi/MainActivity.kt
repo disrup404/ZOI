@@ -103,7 +103,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 ZoiChatScreen(
                     onSpeak = { speak(it) },
                     onListen = { onText, onError -> startListening(onText, onError) },
-                    onStopListening = { speechRecognizer?.stopListening() }
+                    onStopListening = { speechRecognizer?.stopListening() },
+                    onStopSpeaking = { textToSpeech?.stop() }
                 )
             }
         }
@@ -166,7 +167,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 private fun ZoiChatScreen(
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
-    onStopListening: () -> Unit
+    onStopListening: () -> Unit,
+    onStopSpeaking: () -> Unit
 ) {
     val context = LocalContext.current
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
@@ -504,11 +506,14 @@ private fun ZoiChatScreen(
 
                 Button(
                     onClick = {
+                        onStopSpeaking()
                         if (listening) {
                             onStopListening()
                             listening = false
                             status = "SYSTEM ONLINE"
                         } else {
+                            // Avoid microphone contention with the background wake-word listener.
+                            context.stopService(Intent(context, WakeWordService::class.java))
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
