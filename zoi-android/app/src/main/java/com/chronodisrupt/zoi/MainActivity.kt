@@ -1,287 +1,390 @@
-
 package com.chronodisrupt.zoi
 
+import android.Manifest
+import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.IOException
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
-private enum class ZoiState {
-    IDLE, LISTENING, THINKING, SPEAKING
-}
+private data class ChatMessage(val role: String, val content: String)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var textToSpeech: TextToSpeech? = null
+    private var ttsReady = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        textToSpeech = TextToSpeech(this, this)
         setContent {
             MaterialTheme {
-                ZoiScreen()
+                ZoiChatScreen(
+                    onSpeak = { speak(it) },
+                    onListen = { onText, onError -> startListening(onText, onError) },
+                    onStopListening = { speechRecognizer?.stopListening() }
+                )
             }
         }
+    }
+
+    override fun onInit(status: Int) {
+        ttsReady = status == TextToSpeech.SUCCESS
+        if (ttsReady) textToSpeech?.language = Locale.getDefault()
+    }
+
+    private fun speak(text: String) {
+        if (ttsReady) {
+            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "zoi-response")
+        }
+    }
+
+    private fun startListening(onText: (String) -> Unit, onError: (String) -> Unit) {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            onError("Speech recognition isn't available on this phone.")
+            return
+        }
+        speechRecognizer?.destroy()
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).also { recognizer ->
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onError(error: Int) {
+                    onError("I couldn't hear that clearly. Please try again.")
+                }
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    val spoken = matches?.firstOrNull()
+                    if (!spoken.isNullOrBlank()) onText(spoken)
+                    else onError("I didn't catch that. Try again.")
+                }
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+            }
+            recognizer.startListening(intent)
+        }
+    }
+
+    override fun onDestroy() {
+        speechRecognizer?.destroy()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        super.onDestroy()
     }
 }
 
 @Composable
-fun ZoiScreen() {
-    var state by remember { mutableStateOf(ZoiState.IDLE) }
+private fun ZoiChatScreen(
+    onSpeak: (String) -> Unit,
+    onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
+    onStopListening: () -> Unit
+) {
+    val activity = LocalContext.current as MainActivity
+    val messages = remember { mutableStateListOf<ChatMessage>() }
+    var input by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var listening by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("READY WHEN YOU ARE") }
+    var errorText by remember { mutableStateOf("") }
 
-    val transition = rememberInfiniteTransition(label = "zoi")
-
-    // Eye movement
-    val eyeShift by transition.animateFloat(
-        initialValue = -5f,
-        targetValue = 5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (state) {
-                    ZoiState.IDLE -> 2200
-                    ZoiState.LISTENING -> 1200
-                    ZoiState.THINKING -> 500
-                    ZoiState.SPEAKING -> 1800
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            listening = true
+            status = "LISTENING"
+            onListen(
+                { spoken ->
+                    input = spoken
+                    listening = false
+                    status = "READY WHEN YOU ARE"
+                },
+                { error ->
+                    errorText = error
+                    listening = false
+                    status = "READY WHEN YOU ARE"
                 }
-            ),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "eye movement"
-    )
-
-    // Listening eye pulse
-    val eyeHeight by transition.animateFloat(
-        initialValue = 25f,
-        targetValue = 32f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "eye pulse"
-    )
-
-    // Speaking mouth animation
-    val mouthWidth by transition.animateFloat(
-        initialValue = 24f,
-        targetValue = 65f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(350),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mouth movement"
-    )
-
-    val accent = when (state) {
-        ZoiState.IDLE -> Color(0xFF62D9FF)
-        ZoiState.LISTENING -> Color(0xFF58E6B5)
-        ZoiState.THINKING -> Color(0xFFB49AFF)
-        ZoiState.SPEAKING -> Color(0xFFFFC36B)
-    }
-
-    val status = when (state) {
-        ZoiState.IDLE -> "READY WHEN YOU ARE"
-        ZoiState.LISTENING -> "LISTENING"
-        ZoiState.THINKING -> "THINKING"
-        ZoiState.SPEAKING -> "SPEAKING"
-    }
-
-    val message = when (state) {
-        ZoiState.IDLE -> "I'm here."
-        ZoiState.LISTENING -> "I'm listening."
-        ZoiState.THINKING -> "Give me a moment."
-        ZoiState.SPEAKING -> "Here's what I think."
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0B0D12))
-            .padding(horizontal = 28.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "ZOI",
-                color = Color.White,
-                fontSize = 25.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 5.sp
             )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Text(
-                text = "PERSONAL COMPANION",
-                color = Color(0xFF777E8D),
-                fontSize = 9.sp,
-                letterSpacing = 2.sp
-            )
+        } else {
+            errorText = "Microphone permission is needed for voice input."
         }
+    }
 
-        Spacer(modifier = Modifier.weight(1f))
+    DisposableEffect(Unit) {
+        onDispose { onStopListening() }
+    }
 
-        // Robot face
-        Box(
-            modifier = Modifier.size(260.dp),
-            contentAlignment = Alignment.Center
+    fun sendMessage() {
+        val text = input.trim()
+        if (text.isEmpty() || busy) return
+
+        errorText = ""
+        messages.add(ChatMessage("user", text))
+        input = ""
+        busy = true
+        status = "THINKING"
+
+        val history = JSONArray()
+        messages.dropLast(1).takeLast(12).forEach { item ->
+            history.put(JSONObject().put("role", item.role).put("content", item.content))
+        }
+        val payload = JSONObject().put("message", text).put("history", history)
+        val requestBody = payload.toString().toRequestBody(
+            "application/json; charset=utf-8".toMediaType()
+        )
+        val request = Request.Builder()
+            .url("$API_BASE_URL/v1/chat")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                mainHandler.post {
+                    busy = false
+                    status = "READY WHEN YOU ARE"
+                    errorText = "I couldn't reach Zoi Core. Check your connection and try again."
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val responseText = response.body?.string().orEmpty()
+                mainHandler.post {
+                    busy = false
+                    status = "READY WHEN YOU ARE"
+                    if (!response.isSuccessful) {
+                        errorText = try {
+                            JSONObject(responseText).optString("detail", "The request failed.")
+                        } catch (_: Exception) {
+                            "The request failed. HTTP " + response.code
+                        }
+                    } else {
+                        try {
+                            val reply = JSONObject(responseText).getString("reply")
+                            messages.add(ChatMessage("assistant", reply))
+                            onSpeak(reply)
+                        } catch (_: Exception) {
+                            errorText = "Zoi returned an unreadable response. Please try again."
+                        }
+                    }
+                }
+                response.close()
+            }
+        })
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0B0D12)) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
-
-            // Outer glow
-            Box(
-                modifier = Modifier
-                    .size(250.dp)
-                    .clip(CircleShape)
-                    .background(accent.copy(alpha = 0.045f))
-            )
-
-            // Robot head
-            Column(
-                modifier = Modifier
-                    .width(218.dp)
-                    .height(178.dp)
-                    .clip(RoundedCornerShape(48.dp))
-                    .background(Color(0xFF171C26))
-                    .border(
-                        width = 2.dp,
-                        color = accent.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(48.dp)
-                    ),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Text("ZOI", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 5.sp)
+                Spacer(Modifier.weight(1f))
+                Text(status, color = Color(0xFF62D9FF), fontSize = 9.sp, letterSpacing = 1.5.sp)
+            }
 
-                // Eyes
-                Row(
-                    modifier = Modifier.offset(x = eyeShift.dp),
-                    horizontalArrangement = Arrangement.spacedBy(38.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            Spacer(Modifier.height(18.dp))
+
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier.size(76.dp).background(Color(0xFF172331), CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    repeat(2) {
-                        Box(
-                            modifier = Modifier
-                                .size(
-                                    width = 29.dp,
-                                    height = if (state == ZoiState.LISTENING) {
-                                        eyeHeight.dp
-                                    } else {
-                                        29.dp
-                                    }
-                                )
-                                .clip(CircleShape)
-                                .background(accent)
+                    Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                        Box(Modifier.size(12.dp).background(Color(0xFF62D9FF), CircleShape))
+                        Box(Modifier.size(12.dp).background(Color(0xFF62D9FF), CircleShape))
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                if (busy) "Let me think." else if (listening) "I'm listening." else "I'm here.",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(12.dp))
+
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (messages.isEmpty()) {
+                    item {
+                        Text(
+                            "Talk to me, or type whatever is on your mind.",
+                            color = Color(0xFF7D8797),
+                            fontSize = 14.sp
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(27.dp))
-
-                // Mouth
-                Box(
-                    modifier = Modifier
-                        .width(
-                            if (state == ZoiState.SPEAKING) {
-                                mouthWidth.dp
-                            } else {
-                                38.dp
-                            }
+                items(messages) { message ->
+                    val isUser = message.role == "user"
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+                    ) {
+                        Text(
+                            if (isUser) "YOU" else "ZOI",
+                            color = if (isUser) Color(0xFF8B9AAD) else Color(0xFF62D9FF),
+                            fontSize = 9.sp,
+                            letterSpacing = 1.5.sp
                         )
-                        .height(
-                            if (state == ZoiState.SPEAKING) 8.dp else 5.dp
-                        )
-                        .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.8f))
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(42.dp))
-
-        // Status
-        Text(
-            text = status,
-            color = accent,
-            fontSize = 11.sp,
-            letterSpacing = 3.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Text(
-            text = message,
-            color = Color.White,
-            fontSize = 23.sp,
-            fontWeight = FontWeight.Medium
-        )
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        // Preview interaction
-        Button(
-            onClick = {
-                state = when (state) {
-                    ZoiState.IDLE -> ZoiState.LISTENING
-                    ZoiState.LISTENING -> ZoiState.THINKING
-                    ZoiState.THINKING -> ZoiState.SPEAKING
-                    ZoiState.SPEAKING -> ZoiState.IDLE
+                        Spacer(Modifier.height(4.dp))
+                        Surface(
+                            color = if (isUser) Color(0xFF1B2938) else Color(0xFF171C26),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(
+                                message.content,
+                                modifier = Modifier.padding(13.dp),
+                                color = Color(0xFFE8EDF5),
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
                 }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(58.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF202B38),
-                contentColor = accent
-            )
-        ) {
+                if (busy) {
+                    item { Text("Zoi is thinking…", color = Color(0xFF62D9FF), fontSize = 12.sp) }
+                }
+            }
+
+            if (errorText.isNotBlank()) {
+                Text(errorText, color = Color(0xFFFF8B8B), fontSize = 12.sp)
+                Spacer(Modifier.height(6.dp))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Message Zoi…") },
+                    enabled = !busy,
+                    shape = RoundedCornerShape(16.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { sendMessage() })
+                )
+                Button(
+                    onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                    enabled = !busy,
+                    modifier = Modifier.size(52.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (listening) Color(0xFF235C51) else Color(0xFF202B38)
+                    )
+                ) {
+                    Text(if (listening) "…" else "MIC", fontSize = 10.sp)
+                }
+                Button(
+                    onClick = { sendMessage() },
+                    enabled = !busy && input.isNotBlank(),
+                    modifier = Modifier.height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF62D9FF),
+                        contentColor = Color(0xFF081018)
+                    )
+                ) {
+                    Text("SEND", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = if (state == ZoiState.IDLE) {
-                    "PREVIEW INTERACTION"
-                } else {
-                    "NEXT STATE"
-                },
-                fontSize = 12.sp,
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Bold
+                "VOICE INPUT USES YOUR PHONE'S SPEECH SERVICE",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color(0xFF596474),
+                fontSize = 8.sp,
+                letterSpacing = 1.sp
             )
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Text(
-            text = "INTERFACE PREVIEW • VOICE NOT CONNECTED",
-            color = Color(0xFF555D6B),
-            fontSize = 9.sp,
-            letterSpacing = 1.5.sp
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
     }
 }
+
+private const val API_BASE_URL = "https://zoi-core.onrender.com"
+
+private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(20, TimeUnit.SECONDS)
+    .readTimeout(90, TimeUnit.SECONDS)
+    .writeTimeout(20, TimeUnit.SECONDS)
+    .build()
+
+private val mainHandler = Handler(Looper.getMainLooper())
