@@ -12,8 +12,14 @@ android {
         applicationId = "com.chronodisrupt.zoi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
+    }
+
+    defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     compileOptions {
@@ -36,6 +42,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
