@@ -5,13 +5,16 @@ plugins {
 }
 
 android {
-    namespace = "com.    nodisrupt.zoi"
+    namespace = "com.chronodisrupt.zoi"
     compileSdk = 36
 
     defaultConfig {
-               tionId =            disrup               tionIk = 26
+        applicationId = "com.chronodisrupt.zoi"
+        minSdk = 26
         targetSdk = 35
-        ver        ver        ver    onName         ver        ver        ver    onName         ver         }
+        versionCode = 1
+        versionName = "1.0"
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -27,5 +30,9 @@ dependencies {
 
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.ui:ui")
-    implementa    implementa    implementa    implemen    implementation("androidx.compose.ui:ui-tooling-preview    implementa    imn("androidx.    implementa    implementa    implementaplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }
