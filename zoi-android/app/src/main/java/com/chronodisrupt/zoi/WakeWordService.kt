@@ -105,8 +105,8 @@ class WakeWordService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Zoi is listening for Hello Zoi")
-            .setContentText("Wake-word detection runs on this phone. Tap Turn off to stop.")
+            .setContentTitle("Zoi voice activation is on")
+            .setContentText("Wake phrases are detected on this phone. Tap Turn off to stop.")
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Turn off", stopIntent).build())
             .build()
@@ -183,7 +183,7 @@ class WakeWordService : Service() {
         try {
             if (keywordSpotter == null) keywordSpotter = createKeywordSpotter()
             val spotter = keywordSpotter ?: return
-            val stream = spotter.createStream(WAKE_PHRASE)
+            val stream = spotter.createStream()
             keywordStream = stream
 
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -208,7 +208,7 @@ class WakeWordService : Service() {
             audioRecord = recorder
             recorder.startRecording()
             listeningForWakeWord = true
-            updateNotification("Listening locally for Hello Zoi")
+            updateNotification("Listening locally for your Zoi wake phrases")
             recordingThread = thread(name = "ZoiWakeWord") {
                 processWakeWordAudio(recorder, spotter, stream)
             }
@@ -289,7 +289,7 @@ class WakeWordService : Service() {
 
                     override fun onError(error: Int) {
                         stopSpeechRecognizer()
-                        speakAndResume("I didn't catch that. Say Hello Zoi and try again.")
+                        speakAndResume("I didn't catch that. Say one of your Zoi wake phrases and try again.")
                     }
 
                     override fun onResults(results: android.os.Bundle?) {
@@ -298,7 +298,7 @@ class WakeWordService : Service() {
                             ?.firstOrNull()
                         stopSpeechRecognizer()
                         if (phrase.isNullOrBlank()) {
-                            speakAndResume("I didn't catch that. Say Hello Zoi and try again.")
+                            speakAndResume("I didn't catch that. Say one of your Zoi wake phrases and try again.")
                         } else {
                             askZoiCore(phrase)
                         }
@@ -313,7 +313,7 @@ class WakeWordService : Service() {
             }
         } catch (_: Exception) {
             stopSpeechRecognizer()
-            speakAndResume("I couldn't start listening. Say Hello Zoi and try again.")
+            speakAndResume("I couldn't start listening. Say one of your Zoi wake phrases and try again.")
         }
     }
 
@@ -352,7 +352,7 @@ class WakeWordService : Service() {
                         try { JSONObject(responseBody).optString("reply") } catch (_: Exception) { "" }
                     } else ""
                     if (reply.isBlank()) {
-                        speakAndResume("I couldn't get a response just now. Say Hello Zoi to try again.")
+                        speakAndResume("I couldn't get a response just now. Say one of your Zoi wake phrases to try again.")
                     } else {
                         speakAndResume(reply)
                     }
@@ -409,7 +409,6 @@ class WakeWordService : Service() {
         private const val NOTIFICATION_ID = 2402
         private const val SAMPLE_RATE = 16000
         private const val MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
-        private const val WAKE_PHRASE = "HELLO ZOI"
         private const val API_BASE_URL = "https://zoi-core.onrender.com"
 
         private val httpClient: OkHttpClient = OkHttpClient.Builder()
