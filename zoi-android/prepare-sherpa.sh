@@ -38,10 +38,7 @@ fi
 
 # sherpa-onnx requires BPE-tokenized keywords, not raw English phrases.
 cat > "$ASSET_DIR/keywords_raw.txt" <<'PHRASES'
-HELLO ZOI
-HEY ZOI
-HI ZOI
-OKAY ZOI
+JANE
 PHRASES
 
 python3 -m pip install --disable-pip-version-check --quiet sherpa-onnx sentencepiece pypinyin
@@ -55,5 +52,5 @@ sherpa-onnx-cli text2token \
 test -s "$ASSET_DIR/keywords.txt"
 echo "Configured wake phrases:"
 cat "$ASSET_DIR/keywords_raw.txt"
-echo "sherpa-onnx Android dependency and English wake-word model are ready."
+echo "sherpa-onnx Android dependency and Jane wake-word model are ready."
 du -sh "$AAR" "$ASSET_DIR"
