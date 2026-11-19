@@ -392,10 +392,10 @@ private fun JaneChatScreen(
                 wakeWordActive = true
                 errorText = ""
             } catch (_: Exception) {
-                errorText = "I couldn't start wake-word listening. Open Zoi and try again."
+                errorText = "I couldn't start wake-word listening. Open Jane and try again."
             }
         } else {
-            errorText = "Microphone permission is required for Hello Zoi wake-word listening."
+            errorText = "Microphone permission is required for Jane wake-word listening."
         }
     }
 
