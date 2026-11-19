@@ -171,6 +171,8 @@ private fun ZoiChatScreen(
     onStopSpeaking: () -> Unit
 ) {
     val context = LocalContext.current
+    var wakeWordActive by remember { mutableStateOf(false) }
+    var overlayActive by remember { mutableStateOf(false) }
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -182,8 +184,6 @@ private fun ZoiChatScreen(
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var wakeWordActive by remember { mutableStateOf(false) }
-    var overlayActive by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("SYSTEM ONLINE") }
     var errorText by remember { mutableStateOf("") }
