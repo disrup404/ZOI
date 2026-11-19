@@ -38,6 +38,8 @@ class FloatingRobotService : Service() {
     private var robotView: FloatingRobotView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var movement: ValueAnimator? = null
+    private var userDragging = false
+    private var serviceStopping = false
     private val wanderRunnable = Runnable { wanderToNextPosition() }
 
     override fun onCreate() {
@@ -114,8 +116,8 @@ class FloatingRobotService : Service() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 })
             },
-            onDragStart = { cancelWander() },
-            onDragEnd = { scheduleWander() }
+            onDragStart = { userDragging = true; cancelWander() },
+            onDragEnd = { userDragging = false; scheduleWander() }
         )
         robotView = view
         layoutParams = params
@@ -164,7 +166,7 @@ class FloatingRobotService : Service() {
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     if (movement === animation) movement = null
-                    scheduleWander()
+                    if (!userDragging && !serviceStopping) scheduleWander()
                 }
             })
             start()
@@ -172,7 +174,9 @@ class FloatingRobotService : Service() {
     }
 
     override fun onDestroy() {
+        serviceStopping = true
         cancelWander()
+        handler.removeCallbacks(wanderRunnable)
         robotView?.let {
             try { windowManager.removeView(it) } catch (_: Exception) {}
         }
