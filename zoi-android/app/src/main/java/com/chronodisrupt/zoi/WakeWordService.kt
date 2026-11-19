@@ -42,9 +42,9 @@ import kotlin.concurrent.thread
 /**
  * User-enabled, on-device wake-word listener.
  *
- * Wake-word audio is processed locally by sherpa-onnx. Only after "Hello Zoi"
+ * Wake-word audio is processed locally by sherpa-onnx. Only after "Hello Jane"
  * is detected does Android speech recognition capture the user's command and
- * send its transcript to Zoi Core.
+ * send its transcript to Jane Core.
  */
 class WakeWordService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -105,7 +105,7 @@ class WakeWordService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Zoi voice activation is on")
+            .setContentTitle("Jane voice activation is on")
             .setContentText("Wake phrases are detected on this phone. Tap Turn off to stop.")
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Turn off", stopIntent).build())
@@ -128,10 +128,10 @@ class WakeWordService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Zoi wake word",
+                    "Jane wake word",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "Visible notification while Zoi listens for its wake phrase."
+                    description = "Visible notification while Jane listens for its wake phrase."
                 }
             )
         }
@@ -146,7 +146,7 @@ class WakeWordService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Zoi voice assistant")
+            .setContentTitle("Jane voice assistant")
             .setContentText(message)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Turn off", stopIntent).build())
@@ -208,8 +208,8 @@ class WakeWordService : Service() {
             audioRecord = recorder
             recorder.startRecording()
             listeningForWakeWord = true
-            updateNotification("Listening locally for your Zoi wake phrases")
-            recordingThread = thread(name = "ZoiWakeWord") {
+            updateNotification("Listening locally for the Jane wake keyword")
+            recordingThread = thread(name = "JaneWakeWord") {
                 processWakeWordAudio(recorder, spotter, stream)
             }
         } catch (error: Exception) {
@@ -268,7 +268,7 @@ class WakeWordService : Service() {
 
     private fun beginCommandCapture() {
         if (!serviceActive) return
-        updateNotification("Hello! Listening for your request…")
+        updateNotification("Hi! Listening for your request…")
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             speakAndResume("I heard you, but speech recognition isn't available on this phone.")
@@ -289,7 +289,7 @@ class WakeWordService : Service() {
 
                     override fun onError(error: Int) {
                         stopSpeechRecognizer()
-                        speakAndResume("I didn't catch that. Say one of your Zoi wake phrases and try again.")
+                        speakAndResume("I didn't catch that. Say one of the Jane wake keyword and try again.")
                     }
 
                     override fun onResults(results: android.os.Bundle?) {
@@ -298,9 +298,9 @@ class WakeWordService : Service() {
                             ?.firstOrNull()
                         stopSpeechRecognizer()
                         if (phrase.isNullOrBlank()) {
-                            speakAndResume("I didn't catch that. Say one of your Zoi wake phrases and try again.")
+                            speakAndResume("I didn't catch that. Say one of the Jane wake keyword and try again.")
                         } else {
-                            askZoiCore(phrase)
+                            askJaneCore(phrase)
                         }
                     }
                 })
@@ -313,7 +313,7 @@ class WakeWordService : Service() {
             }
         } catch (_: Exception) {
             stopSpeechRecognizer()
-            speakAndResume("I couldn't start listening. Say one of your Zoi wake phrases and try again.")
+            speakAndResume("I couldn't start listening. Say one of the Jane wake keyword and try again.")
         }
     }
 
@@ -323,7 +323,7 @@ class WakeWordService : Service() {
         speechRecognizer = null
     }
 
-    private fun askZoiCore(message: String) {
+    private fun askJaneCore(message: String) {
         updateNotification("Thinking about your request…")
         val payload = JSONObject()
             .put("message", message)
@@ -339,7 +339,7 @@ class WakeWordService : Service() {
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 mainHandler.post {
-                    if (serviceActive) speakAndResume("I couldn't reach Zoi Core. Check your internet connection and try again.")
+                    if (serviceActive) speakAndResume("I couldn't reach Jane Core. Check your internet connection and try again.")
                 }
             }
 
@@ -352,7 +352,7 @@ class WakeWordService : Service() {
                         try { JSONObject(responseBody).optString("reply") } catch (_: Exception) { "" }
                     } else ""
                     if (reply.isBlank()) {
-                        speakAndResume("I couldn't get a response just now. Say one of your Zoi wake phrases to try again.")
+                        speakAndResume("I couldn't get a response just now. Say one of the Jane wake keyword to try again.")
                     } else {
                         speakAndResume(reply)
                     }
@@ -362,7 +362,7 @@ class WakeWordService : Service() {
     }
 
     private fun speakAndResume(message: String) {
-        updateNotification("Zoi is responding…")
+        updateNotification("Jane is responding…")
         if (ttsReady && textToSpeech != null) {
             textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "zoi-wake-response")
         } else {
