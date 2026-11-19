@@ -218,8 +218,8 @@ class WakeWordService : Service() {
             listeningForWakeWord = true
             updateNotification("Listening for Jane — microphone active")
             Log.i(TAG, "Wake-word microphone started; sampleRate=$SAMPLE_RATE, locale=${Locale.getDefault().toLanguageTag()}")
-            val activeRecorder = recorder
-            val activeStream = stream
+            val activeRecorder = recorder ?: throw IllegalStateException("Microphone initialization failed.")
+            val activeStream = stream ?: throw IllegalStateException("Wake-word stream initialization failed.")
             recordingThread = thread(name = "JaneWakeWord") {
                 processWakeWordAudio(activeRecorder, spotter, activeStream)
             }
