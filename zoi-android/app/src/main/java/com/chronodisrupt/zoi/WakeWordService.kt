@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -57,6 +58,8 @@ class WakeWordService : Service() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var ttsReady = false
+    private var wakeRestartPending = false
+    private var commandPartialTranscript: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -71,13 +74,13 @@ class WakeWordService : Service() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
                         mainHandler.post {
-                            if (serviceActive && !listeningForWakeWord) startWakeWordListening()
+                            if (serviceActive && !listeningForWakeWord) scheduleWakeWordRestart()
                         }
                     }
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
                         mainHandler.post {
-                            if (serviceActive && !listeningForWakeWord) startWakeWordListening()
+                            if (serviceActive && !listeningForWakeWord) scheduleWakeWordRestart()
                         }
                     }
                 })
@@ -178,12 +181,14 @@ class WakeWordService : Service() {
     }
 
     private fun startWakeWordListening() {
-        if (!serviceActive || listeningForWakeWord) return
+        if (!serviceActive || listeningForWakeWord || recordingThread?.isAlive == true || speechRecognizer != null) return
 
+        var stream: OnlineStream? = null
+        var recorder: AudioRecord? = null
         try {
             if (keywordSpotter == null) keywordSpotter = createKeywordSpotter()
-            val spotter = keywordSpotter ?: return
-            val stream = spotter.createStream()
+            val spotter = keywordSpotter ?: throw IllegalStateException("Wake-word model is unavailable.")
+            stream = spotter.createStream()
             keywordStream = stream
 
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -193,7 +198,7 @@ class WakeWordService : Service() {
             )
             if (minBuffer <= 0) throw IllegalStateException("This device cannot initialize the microphone.")
 
-            val recorder = AudioRecord(
+            recorder = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
@@ -201,20 +206,32 @@ class WakeWordService : Service() {
                 maxOf(minBuffer * 2, SAMPLE_RATE / 5 * 2)
             )
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-                recorder.release()
                 throw IllegalStateException("The microphone could not be initialized.")
             }
 
-            audioRecord = recorder
             recorder.startRecording()
+            if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                throw IllegalStateException("Android did not start microphone recording.")
+            }
+
+            audioRecord = recorder
             listeningForWakeWord = true
-            updateNotification("Listening locally for the Jane wake keyword")
+            updateNotification("Listening for Jane — microphone active")
+            Log.i(TAG, "Wake-word microphone started; sampleRate=$SAMPLE_RATE, locale=${Locale.getDefault().toLanguageTag()}")
+            val activeRecorder = recorder ?: throw IllegalStateException("Microphone initialization failed.")
+            val activeStream = stream ?: throw IllegalStateException("Wake-word stream initialization failed.")
             recordingThread = thread(name = "JaneWakeWord") {
-                processWakeWordAudio(recorder, spotter, stream)
+                processWakeWordAudio(activeRecorder, spotter, activeStream)
             }
         } catch (error: Exception) {
             listeningForWakeWord = false
-            updateNotification("Wake-word setup failed: ${error.message ?: "unknown error"}")
+            Log.e(TAG, "Could not start wake-word microphone", error)
+            try { recorder?.release() } catch (_: Exception) {}
+            try { stream?.release() } catch (_: Exception) {}
+            if (audioRecord === recorder) audioRecord = null
+            if (keywordStream === stream) keywordStream = null
+            updateNotification("Microphone unavailable — retrying")
+            scheduleWakeWordRestart()
         }
     }
 
@@ -230,7 +247,11 @@ class WakeWordService : Service() {
         try {
             while (listeningForWakeWord && serviceActive) {
                 val count = recorder.read(shortBuffer, 0, shortBuffer.size)
-                if (count <= 0) continue
+                if (count < 0) {
+                    Log.e(TAG, "AudioRecord.read failed with code=$count")
+                    break
+                }
+                if (count == 0) continue
 
                 val samples = FloatArray(count) { shortBuffer[it] / 32768.0f }
                 stream.acceptWaveform(samples, sampleRate = SAMPLE_RATE)
@@ -239,88 +260,218 @@ class WakeWordService : Service() {
                     spotter.decode(stream)
                     val keyword = spotter.getResult(stream).keyword
                     if (keyword.isNotBlank()) {
+                        Log.i(TAG, "Wake keyword detected: $keyword")
                         detected = true
-                        listeningForWakeWord = false
                         break
                     }
                 }
                 if (detected) break
             }
-        } catch (_: Exception) {
-            // A stop request can interrupt AudioRecord.read(); cleanup below is expected.
+        } catch (error: Exception) {
+            if (serviceActive) Log.e(TAG, "Wake-word audio loop failed", error)
         } finally {
+            // Always clear this flag when the recorder thread exits. Otherwise a failed
+            // read leaves it true and every attempted restart is rejected as "already listening".
+            listeningForWakeWord = false
             try { stream.release() } catch (_: Exception) {}
             if (keywordStream === stream) keywordStream = null
             try {
                 if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop()
             } catch (_: Exception) {}
-            recorder.release()
+            try { recorder.release() } catch (_: Exception) {}
             if (audioRecord === recorder) audioRecord = null
             recordingThread = null
+            Log.i(TAG, "Wake-word audio loop ended; detected=$detected, serviceActive=$serviceActive")
         }
 
         if (detected && serviceActive) {
             mainHandler.post { beginCommandCapture() }
-        } else if (serviceActive && listeningForWakeWord) {
-            mainHandler.post { startWakeWordListening() }
+        } else if (serviceActive) {
+            updateNotification("Wake-word listener stopped — restarting")
+            scheduleWakeWordRestart()
         }
+    }
+
+    private fun scheduleWakeWordRestart() {
+        if (!serviceActive || wakeRestartPending) return
+        wakeRestartPending = true
+        mainHandler.postDelayed({
+            wakeRestartPending = false
+            if (serviceActive && !listeningForWakeWord && speechRecognizer == null) {
+                Log.i(TAG, "Attempting wake-word listener recovery")
+                startWakeWordListening()
+            }
+        }, WAKE_RESTART_DELAY_MS)
     }
 
     private fun beginCommandCapture() {
         if (!serviceActive) return
-        updateNotification("Hi! Listening for your request…")
+        commandPartialTranscript = null
+        updateNotification("Jane heard you — listening for your request")
+        Log.i(TAG, "Starting Android speech recognition; locale=${Locale.getDefault().toLanguageTag()}")
 
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            speakAndResume("I heard you, but speech recognition isn't available on this phone.")
+            Log.e(TAG, "Speech recognition is not available on this device")
+            speakAndResume("Speech recognition isn't available right now.")
             return
         }
 
         try {
-            speechRecognizer?.destroy()
+            stopSpeechRecognizer()
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).also { recognizer ->
                 recognizer.setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: android.os.Bundle?) {}
-                    override fun onBeginningOfSpeech() {}
+                    override fun onReadyForSpeech(params: android.os.Bundle?) {
+                        Log.i(TAG, "SpeechRecognizer ready; waiting for speech")
+                        updateNotification("Listening to your request…")
+                    }
+                    override fun onBeginningOfSpeech() {
+                        Log.i(TAG, "SpeechRecognizer detected speech")
+                    }
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() {}
+                    override fun onEndOfSpeech() {
+                        Log.i(TAG, "SpeechRecognizer detected end of speech")
+                    }
                     override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
-                    override fun onPartialResults(partialResults: android.os.Bundle?) {}
+                    override fun onPartialResults(partialResults: android.os.Bundle?) {
+                        val partial = partialResults
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                            ?.trim()
+                        if (!partial.isNullOrBlank()) {
+                            commandPartialTranscript = partial
+                            Log.i(TAG, "Partial speech transcript: $partial")
+                        }
+                    }
 
                     override fun onError(error: Int) {
+                        val partial = commandPartialTranscript
+                        Log.e(TAG, "SpeechRecognizer error=$error (${speechErrorName(error)}); partial=${partial.orEmpty()}")
                         stopSpeechRecognizer()
-                        speakAndResume("I didn't catch that. Say the word Jane and try again.")
+                        if (!partial.isNullOrBlank()) {
+                            handleRecognizedCommand(partial)
+                        } else {
+                            speakAndResume(speechErrorMessage(error))
+                        }
                     }
 
                     override fun onResults(results: android.os.Bundle?) {
-                        val phrase = results
+                        val alternatives = results
                             ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            ?.firstOrNull()
+                        val phrase = alternatives?.firstOrNull { it.isNotBlank() }?.trim()
+                            ?: commandPartialTranscript
+                        Log.i(TAG, "Final speech results: ${alternatives?.joinToString(" | ").orEmpty()}")
                         stopSpeechRecognizer()
                         if (phrase.isNullOrBlank()) {
-                            speakAndResume("I didn't catch that. Say the word Jane and try again.")
+                            speakAndResume("I couldn't hear a request. Please try again.")
                         } else {
-                            askJaneCore(phrase)
+                            handleRecognizedCommand(phrase)
                         }
                     }
                 })
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 }
                 recognizer.startListening(intent)
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not start Android speech recognition", error)
             stopSpeechRecognizer()
-            speakAndResume("I couldn't start listening. Say the word Jane and try again.")
+            speakAndResume("I couldn't start listening to your request.")
         }
     }
 
+    /**
+     * Handle device actions locally, exactly like the chat screen does.
+     * Only explicitly allowlisted package IDs can be launched; AI output is never executed.
+     */
+    private fun handleRecognizedCommand(message: String) {
+        val command = matchAppLaunchCommand(message)
+        if (command == null) {
+            askJaneCore(message)
+            return
+        }
+
+        val (appName, packageName) = command
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent == null) {
+            speakAndResume("$appName doesn't appear to be installed on this phone.")
+            return
+        }
+
+        try {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+            speakAndResume("Opening $appName.")
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not launch $appName", error)
+            speakAndResume("I couldn't open $appName. Please try opening it manually.")
+        }
+    }
+
+    private fun matchAppLaunchCommand(message: String): Pair<String, String>? {
+        val pattern = Regex(
+            """(?i)^\s*(?:(?:hey\s+)?jane[, ]*)?(?:please\s+)?(?:(?:can|could) you\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s*[?.!]*$"""
+        )
+        val match = pattern.matchEntire(message.trim()) ?: return null
+        val target = match.groupValues[1]
+            .replace(Regex("""(?i)\s+for me$"""), "")
+            .trim()
+            .lowercase(Locale.ROOT)
+
+        val apps = mapOf(
+            "youtube" to ("YouTube" to "com.google.android.youtube"),
+            "youtube app" to ("YouTube" to "com.google.android.youtube"),
+            "whatsapp" to ("WhatsApp" to "com.whatsapp"),
+            "whats app" to ("WhatsApp" to "com.whatsapp"),
+            "chrome" to ("Chrome" to "com.android.chrome"),
+            "google chrome" to ("Chrome" to "com.android.chrome"),
+            "google maps" to ("Google Maps" to "com.google.android.apps.maps"),
+            "maps" to ("Google Maps" to "com.google.android.apps.maps"),
+            "gmail" to ("Gmail" to "com.google.android.gm"),
+            "spotify" to ("Spotify" to "com.spotify.music")
+        )
+        return apps[target]
+    }
+
+    private fun speechErrorName(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_AUDIO -> "ERROR_AUDIO"
+        SpeechRecognizer.ERROR_CLIENT -> "ERROR_CLIENT"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "ERROR_INSUFFICIENT_PERMISSIONS"
+        SpeechRecognizer.ERROR_NETWORK -> "ERROR_NETWORK"
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "ERROR_NETWORK_TIMEOUT"
+        SpeechRecognizer.ERROR_NO_MATCH -> "ERROR_NO_MATCH"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "ERROR_RECOGNIZER_BUSY"
+        SpeechRecognizer.ERROR_SERVER -> "ERROR_SERVER"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "ERROR_SPEECH_TIMEOUT"
+        else -> "ERROR_$error"
+    }
+
+    private fun speechErrorMessage(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+            "I'm having trouble reaching the speech recognition service. Check your connection."
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+            "I don't have microphone permission. Please allow microphone access for Jane."
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+            "The speech recognizer is busy. Give me a moment and try again."
+        SpeechRecognizer.ERROR_AUDIO ->
+            "I'm having trouble accessing the microphone. Please try again."
+        SpeechRecognizer.ERROR_SERVER ->
+            "The speech recognition service encountered an error. Please try again."
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT, SpeechRecognizer.ERROR_NO_MATCH ->
+            "I couldn't hear a request. Please try again."
+        else ->
+            "Speech recognition failed. Please try again."
+    }
+
     private fun stopSpeechRecognizer() {
-        try { speechRecognizer?.cancel() } catch (_: Exception) {}
-        try { speechRecognizer?.destroy() } catch (_: Exception) {}
+        val recognizer = speechRecognizer
         speechRecognizer = null
+        try { recognizer?.cancel() } catch (_: Exception) {}
+        try { recognizer?.destroy() } catch (_: Exception) {}
     }
 
     private fun askJaneCore(message: String) {
@@ -363,16 +514,17 @@ class WakeWordService : Service() {
 
     private fun speakAndResume(message: String) {
         updateNotification("Jane is responding…")
+        Log.i(TAG, "Speaking response; ttsReady=$ttsReady")
         if (ttsReady && textToSpeech != null) {
-            textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "zoi-wake-response")
+            val result = textToSpeech?.speak(message, TextToSpeech.QUEUE_FLUSH, null, WAKE_RESPONSE_UTTERANCE)
+            if (result == TextToSpeech.ERROR) {
+                Log.e(TAG, "TextToSpeech rejected the response; scheduling listener recovery")
+                scheduleWakeWordRestart()
+            }
         } else {
-            updateNotification("Response ready. Listening again shortly.")
-            mainHandler.postDelayedSafe { startWakeWordListening() }
+            Log.w(TAG, "TextToSpeech is unavailable; resuming wake-word listener without speech")
+            scheduleWakeWordRestart()
         }
-    }
-
-    private fun Handler.postDelayedSafe(action: () -> Unit) {
-        postDelayed({ if (serviceActive && !listeningForWakeWord) action() }, 1200)
     }
 
     private fun stopWakeWordCapture() {
@@ -408,6 +560,9 @@ class WakeWordService : Service() {
         private const val CHANNEL_ID = "zoi_wake_word"
         private const val NOTIFICATION_ID = 2402
         private const val SAMPLE_RATE = 16000
+        private const val WAKE_RESTART_DELAY_MS = 1800L
+        private const val WAKE_RESPONSE_UTTERANCE = "jane-wake-response"
+        private const val TAG = "JaneVoiceEngine"
         private const val MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
         private const val API_BASE_URL = "https://zoi-core.onrender.com"
 
