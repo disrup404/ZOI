@@ -940,7 +940,7 @@ private fun AnnotatedString.Builder.appendInlineMarkdown(line: String) {
  */
 private fun matchAppLaunchCommand(message: String): Pair<String, String>? {
     val pattern = Regex(
-        """(?i)^\s*(?:(?:hey\s+)?zoi[, ]*)?(?:please\s+)?(?:(?:can|could) you\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s*[?.!]*$"""
+        """(?i)^\s*(?:(?:hey\s+)?(?:jane|zoi)[, ]*)?(?:please\s+)?(?:(?:can|could) you\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s*[?.!]*$"""
     )
     val match = pattern.matchEntire(message.trim()) ?: return null
     val target = match.groupValues[1]
