@@ -42,7 +42,7 @@ import kotlin.concurrent.thread
 /**
  * User-enabled, on-device wake-word listener.
  *
- * Wake-word audio is processed locally by sherpa-onnx. Only after "Hello Jane"
+ * Wake-word audio is processed locally by sherpa-onnx. Only after "Jane"
  * is detected does Android speech recognition capture the user's command and
  * send its transcript to Jane Core.
  */
@@ -289,7 +289,7 @@ class WakeWordService : Service() {
 
                     override fun onError(error: Int) {
                         stopSpeechRecognizer()
-                        speakAndResume("I didn't catch that. Say one of the Jane wake keyword and try again.")
+                        speakAndResume("I didn't catch that. Say the word Jane and try again.")
                     }
 
                     override fun onResults(results: android.os.Bundle?) {
@@ -298,7 +298,7 @@ class WakeWordService : Service() {
                             ?.firstOrNull()
                         stopSpeechRecognizer()
                         if (phrase.isNullOrBlank()) {
-                            speakAndResume("I didn't catch that. Say one of the Jane wake keyword and try again.")
+                            speakAndResume("I didn't catch that. Say the word Jane and try again.")
                         } else {
                             askJaneCore(phrase)
                         }
@@ -313,7 +313,7 @@ class WakeWordService : Service() {
             }
         } catch (_: Exception) {
             stopSpeechRecognizer()
-            speakAndResume("I couldn't start listening. Say one of the Jane wake keyword and try again.")
+            speakAndResume("I couldn't start listening. Say the word Jane and try again.")
         }
     }
 
@@ -352,7 +352,7 @@ class WakeWordService : Service() {
                         try { JSONObject(responseBody).optString("reply") } catch (_: Exception) { "" }
                     } else ""
                     if (reply.isBlank()) {
-                        speakAndResume("I couldn't get a response just now. Say one of the Jane wake keyword to try again.")
+                        speakAndResume("I couldn't get a response just now. Say the word Jane to try again.")
                     } else {
                         speakAndResume(reply)
                     }
