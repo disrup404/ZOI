@@ -6,11 +6,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-APP_NAME = "Zoi Core"
+APP_NAME = "Jane Core"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/auto")
 
-SYSTEM_PROMPT = """You are Zoi, a personal AI companion.
+SYSTEM_PROMPT = """You are Jane, a personal AI assistant.
 Be useful, clear, natural, and direct. Adapt your tone to the conversation.
 Answer ordinary questions directly. Do not pretend to be human, conscious, or
 a licensed professional. Do not claim to have performed actions on the user's
@@ -67,7 +67,7 @@ async def health():
 async def chat(payload: ChatRequest):
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=503, detail="Zoi Core has not been configured with an AI provider key.")
+        raise HTTPException(status_code=503, detail="Jane Core has not been configured with an AI provider key.")
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend({"role": item.role, "content": item.content} for item in payload.history[-20:])
@@ -77,7 +77,7 @@ async def chat(payload: ChatRequest):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com/disrup404/ZOI",
-        "X-Title": "Zoi Personal AI Companion",
+        "X-Title": "Jane Personal AI Assistant",
     }
     body = {
         "model": MODEL,
@@ -103,4 +103,4 @@ async def chat(payload: ChatRequest):
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="The AI request timed out. Please try again.")
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-        raise HTTPException(status_code=502, detail="Zoi could not get a usable response from the AI provider.")
+        raise HTTPException(status_code=502, detail="Jane could not get a usable response from the AI provider.")
