@@ -44,7 +44,7 @@ HI ZOI
 OKAY ZOI
 PHRASES
 
-python3 -m pip install --disable-pip-version-check --quiet sherpa-onnx
+python3 -m pip install --disable-pip-version-check --quiet sherpa-onnx sentencepiece
 sherpa-onnx-cli text2token \
   --tokens "$ASSET_DIR/tokens.txt" \
   --tokens-type bpe \
