@@ -349,7 +349,7 @@ class WakeWordService : Service() {
                         Log.e(TAG, "SpeechRecognizer error=$error (${speechErrorName(error)}); partial=${partial.orEmpty()}")
                         stopSpeechRecognizer()
                         if (!partial.isNullOrBlank()) {
-                            askJaneCore(partial)
+                            handleRecognizedCommand(partial)
                         } else {
                             speakAndResume(speechErrorMessage(error))
                         }
@@ -365,7 +365,7 @@ class WakeWordService : Service() {
                         if (phrase.isNullOrBlank()) {
                             speakAndResume("I couldn't hear a request. Please try again.")
                         } else {
-                            askJaneCore(phrase)
+                            handleRecognizedCommand(phrase)
                         }
                     }
                 })
@@ -382,6 +382,59 @@ class WakeWordService : Service() {
             stopSpeechRecognizer()
             speakAndResume("I couldn't start listening to your request.")
         }
+    }
+
+    /**
+     * Handle device actions locally, exactly like the chat screen does.
+     * Only explicitly allowlisted package IDs can be launched; AI output is never executed.
+     */
+    private fun handleRecognizedCommand(message: String) {
+        val command = matchAppLaunchCommand(message)
+        if (command == null) {
+            askJaneCore(message)
+            return
+        }
+
+        val (appName, packageName) = command
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent == null) {
+            speakAndResume("$appName doesn't appear to be installed on this phone.")
+            return
+        }
+
+        try {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+            speakAndResume("Opening $appName.")
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not launch $appName", error)
+            speakAndResume("I couldn't open $appName. Please try opening it manually.")
+        }
+    }
+
+    private fun matchAppLaunchCommand(message: String): Pair<String, String>? {
+        val pattern = Regex(
+            """(?i)^\\s*(?:(?:hey\\s+)?jane[, ]*)?(?:please\\s+)?(?:(?:can|could) you\\s+)?(?:open|launch|start)\\s+(?:the\\s+)?(.+?)\\s*[?.!]*$"""
+        )
+        val match = pattern.matchEntire(message.trim()) ?: return null
+        val target = match.groupValues[1]
+            .replace(Regex("""(?i)\\s+for me$"""), "")
+            .trim()
+            .lowercase(Locale.ROOT)
+
+        val apps = mapOf(
+            "youtube" to ("YouTube" to "com.google.android.youtube"),
+            "youtube app" to ("YouTube" to "com.google.android.youtube"),
+            "whatsapp" to ("WhatsApp" to "com.whatsapp"),
+            "whats app" to ("WhatsApp" to "com.whatsapp"),
+            "chrome" to ("Chrome" to "com.android.chrome"),
+            "google chrome" to ("Chrome" to "com.android.chrome"),
+            "google maps" to ("Google Maps" to "com.google.android.apps.maps"),
+            "maps" to ("Google Maps" to "com.google.android.apps.maps"),
+            "gmail" to ("Gmail" to "com.google.android.gm"),
+            "spotify" to ("Spotify" to "com.spotify.music")
+        )
+        return apps[target]
     }
 
     private fun speechErrorName(error: Int): String = when (error) {
