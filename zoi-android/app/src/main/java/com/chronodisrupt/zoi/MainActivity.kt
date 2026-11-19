@@ -176,11 +176,14 @@ private fun ZoiChatScreen(
     ) {
         if (Settings.canDrawOverlays(context)) {
             context.startForegroundService(Intent(context, FloatingRobotService::class.java))
+            overlayActive = true
         }
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var wakeWordActive by remember { mutableStateOf(false) }
+    var overlayActive by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("SYSTEM ONLINE") }
     var errorText by remember { mutableStateOf("") }
@@ -276,6 +279,7 @@ private fun ZoiChatScreen(
         if (granted) {
             try {
                 context.startForegroundService(Intent(context, WakeWordService::class.java))
+                wakeWordActive = true
                 errorText = ""
             } catch (_: Exception) {
                 errorText = "I couldn't start wake-word listening. Open Zoi and try again."
@@ -344,7 +348,12 @@ private fun ZoiChatScreen(
             ) {
                 Button(
                     onClick = {
-                        wakeWordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        if (wakeWordActive) {
+                            context.stopService(Intent(context, WakeWordService::class.java))
+                            wakeWordActive = false
+                        } else {
+                            wakeWordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
                     },
                     modifier = Modifier.weight(1f).height(42.dp),
                     shape = RoundedCornerShape(13.dp),
@@ -353,13 +362,17 @@ private fun ZoiChatScreen(
                         contentColor = Color(0xFFFFC080)
                     )
                 ) {
-                    Text("ENABLE HELLO ZOI", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                    Text(if (wakeWordActive) "DISABLE VOICE ACTIVATION" else "ENABLE VOICE ACTIVATION", fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 0.35.sp)
                 }
                 Button(
                     onClick = {
-                        if (Settings.canDrawOverlays(context)) {
-                        context.startForegroundService(Intent(context, FloatingRobotService::class.java))
-                    } else {
+                        if (overlayActive) {
+                            context.stopService(Intent(context, FloatingRobotService::class.java))
+                            overlayActive = false
+                        } else if (Settings.canDrawOverlays(context)) {
+                            context.startForegroundService(Intent(context, FloatingRobotService::class.java))
+                            overlayActive = true
+                        } else {
                         val permissionIntent = Intent(
                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                             Uri.parse("package:${context.packageName}")
@@ -374,7 +387,7 @@ private fun ZoiChatScreen(
                     contentColor = Color(0xFFFFB36A)
                 )
             ) {
-                Text("ENABLE FLOATING ROBOT", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                Text(if (overlayActive) "DISABLE OVERLAY" else "ENABLE OVERLAY", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
                 }
             }
 
@@ -514,6 +527,7 @@ private fun ZoiChatScreen(
                         } else {
                             // Avoid microphone contention with the background wake-word listener.
                             context.stopService(Intent(context, WakeWordService::class.java))
+                            wakeWordActive = false
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
