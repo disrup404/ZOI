@@ -29,7 +29,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * User-controlled animated Zoi overlay. The robot wanders slowly, remains draggable,
+ * User-controlled animated Jane overlay. The robot wanders slowly, remains draggable,
  * and never reads the screen or records audio from this service.
  */
 class FloatingRobotService : Service() {
@@ -67,8 +67,8 @@ class FloatingRobotService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Zoi overlay is active")
-            .setContentText("Your animated companion is moving on screen. Tap it to open Zoi.")
+            .setContentTitle("Jane overlay is active")
+            .setContentText("Your animated companion is moving on screen. Tap it to open Jane.")
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Turn off", stopIntent).build())
             .build()
@@ -83,8 +83,8 @@ class FloatingRobotService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Zoi overlay", NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Keeps the user-controlled animated Zoi companion visible."
+                NotificationChannel(CHANNEL_ID, "Jane overlay", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Keeps the user-controlled animated Jane companion visible."
                 }
             )
         }
