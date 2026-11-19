@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         textToSpeech = TextToSpeech(this, this)
         setContent {
             MaterialTheme {
-                ZoiChatScreen(
+                JaneAppRoot(
                     onSpeak = { speak(it) },
                     onListen = { onText, onError -> startListening(onText, onError) },
                     onStopListening = { speechRecognizer?.stopListening() },
@@ -164,7 +164,117 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 }
 
 @Composable
-private fun ZoiChatScreen(
+private fun JaneAppRoot(
+    onSpeak: (String) -> Unit,
+    onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
+    onStopListening: () -> Unit,
+    onStopSpeaking: () -> Unit
+) {
+    val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("jane_preferences", android.content.Context.MODE_PRIVATE)
+    }
+    var introCompleted by remember {
+        mutableStateOf(preferences.getBoolean("intro_completed", false))
+    }
+
+    if (introCompleted) {
+        JaneChatScreen(
+            onSpeak = onSpeak,
+            onListen = onListen,
+            onStopListening = onStopListening,
+            onStopSpeaking = onStopSpeaking
+        )
+    } else {
+        JaneWelcomeScreen(
+            onContinue = {
+                preferences.edit().putBoolean("intro_completed", true).apply()
+                introCompleted = true
+            }
+        )
+    }
+}
+
+@Composable
+private fun JaneWelcomeScreen(onContinue: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF080D14)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp, vertical = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                "JANE",
+                color = Color.White,
+                fontSize = 31.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 8.sp
+            )
+            Text(
+                "PERSONAL AI ASSISTANT",
+                color = Color(0xFF8296AA),
+                fontSize = 9.sp,
+                letterSpacing = 3.sp
+            )
+            Spacer(Modifier.height(30.dp))
+            RobotCompanion(listening = false, thinking = false)
+            Spacer(Modifier.height(22.dp))
+            Text(
+                "Hello, I'm Jane.",
+                color = Color(0xFFF3F6FA),
+                fontSize = 27.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Your personal AI assistant.",
+                color = Color(0xFFFFB36A),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "I'm here to help you find answers, think through ideas and get things done. Talk to me naturally or send a message whenever you need me.",
+                color = Color(0xFF9BAABD),
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(Modifier.height(34.dp))
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFFA85D),
+                    contentColor = Color(0xFF17110D)
+                )
+            ) {
+                Text(
+                    "LET'S GET STARTED",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.2.sp
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "READY WHEN YOU ARE",
+                color = Color(0xFF536579),
+                fontSize = 9.sp,
+                letterSpacing = 2.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun JaneChatScreen(
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
     onStopListening: () -> Unit,
@@ -243,7 +353,7 @@ private fun ZoiChatScreen(
                 mainHandler.post {
                     busy = false
                     status = "SYSTEM ONLINE"
-                    errorText = "I couldn't reach Zoi Core. Check your connection and try again."
+                    errorText = "I couldn't reach Jane Core. Check your connection and try again."
                 }
             }
 
@@ -264,7 +374,7 @@ private fun ZoiChatScreen(
                             messages.add(ChatMessage("assistant", reply))
                             onSpeak(reply)
                         } catch (_: Exception) {
-                            errorText = "Zoi returned an unreadable response. Please try again."
+                            errorText = "Jane returned an unreadable response. Please try again."
                         }
                     }
                 }
@@ -328,7 +438,7 @@ private fun ZoiChatScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("ZOI", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
+                    Text("JANE", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
                     Text("PERSONAL COMPANION", color = Color(0xFF718397), fontSize = 8.sp, letterSpacing = 2.sp)
                 }
                 Spacer(Modifier.weight(1f))
@@ -403,7 +513,7 @@ private fun ZoiChatScreen(
                 when {
                     listening -> "I'm listening."
                     busy -> "Give me a second."
-                    else -> "What are we doing today?"
+                    else -> "What can I help you with today?"
                 },
                 modifier = Modifier.fillMaxWidth(),
                 color = Color(0xFFEAF2FA),
@@ -413,7 +523,7 @@ private fun ZoiChatScreen(
             Text(
                 when {
                     listening -> "Speak naturally. I'll send it when you're done."
-                    busy -> "Zoi is working on your request."
+                    busy -> "Jane is working on your request."
                     else -> "Talk to me, or type a message below."
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -443,7 +553,7 @@ private fun ZoiChatScreen(
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
                     ) {
                         Text(
-                            if (isUser) "YOU" else "ZOI",
+                            if (isUser) "YOU" else "JANE",
                             color = if (isUser) Color(0xFF91A6BC) else Color(0xFFFFB36A),
                             fontSize = 9.sp,
                             letterSpacing = 1.6.sp,
@@ -471,7 +581,7 @@ private fun ZoiChatScreen(
                 }
                 if (busy) {
                     item {
-                        Text("Zoi is thinking…", color = Color(0xFFFFB36A), fontSize = 12.sp)
+                        Text("Jane is thinking…", color = Color(0xFFFFB36A), fontSize = 12.sp)
                     }
                 }
             }
@@ -507,7 +617,7 @@ private fun ZoiChatScreen(
                     decorationBox = { innerTextField ->
                         Box {
                             if (input.isEmpty()) {
-                                Text("Message Zoi…", color = Color(0xFF8292A5), fontSize = 14.sp)
+                                Text("Message Jane…", color = Color(0xFF8292A5), fontSize = 14.sp)
                             }
                             innerTextField()
                         }
