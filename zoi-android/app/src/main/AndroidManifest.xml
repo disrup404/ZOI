@@ -21,7 +21,7 @@
         android:icon="@mipmap/zoi_launcher"
         android:roundIcon="@mipmap/zoi_launcher"
         android:allowBackup="false"
-        android:label="Zoi"
+        android:label="Jane"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -32,7 +32,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-controlled floating Zoi companion overlay" />
+                android:value="User-controlled floating Jane assistant overlay" />
         </service>
 
         <service
