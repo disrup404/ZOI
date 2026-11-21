@@ -45,6 +45,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -298,6 +301,8 @@ private fun JaneChatScreen(
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
+    var selectedMode by remember { mutableStateOf("chat") }
+    var modeMenuExpanded by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var listening by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("SYSTEM ONLINE") }
@@ -344,7 +349,7 @@ private fun JaneChatScreen(
         messages.dropLast(1).takeLast(12).forEach { item ->
             history.put(JSONObject().put("role", item.role).put("content", item.content))
         }
-        val payload = JSONObject().put("message", text).put("history", history)
+        val payload = JSONObject().put("message", text).put("history", history).put("mode", selectedMode)
         val requestBody = payload.toString().toRequestBody(
             "application/json; charset=utf-8".toMediaType()
         )
@@ -597,6 +602,56 @@ private fun JaneChatScreen(
             if (errorText.isNotBlank()) {
                 Text(errorText, color = Color(0xFFFF8989), fontSize = 12.sp)
                 Spacer(Modifier.height(7.dp))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("MODE", color = Color(0xFF66788B), fontSize = 9.sp, letterSpacing = 1.2.sp)
+                Spacer(Modifier.width(8.dp))
+                Box {
+                    TextButton(onClick = { modeMenuExpanded = true }) {
+                        Text(
+                            when (selectedMode) {
+                                "write" -> "WRITE"
+                                "code" -> "CODE"
+                                "research" -> "RESEARCH"
+                                "think" -> "THINK"
+                                else -> "CHAT"
+                            },
+                            color = Color(0xFFFFB36A),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = modeMenuExpanded,
+                        onDismissRequest = { modeMenuExpanded = false },
+                        containerColor = Color(0xFF1B2633)
+                    ) {
+                        listOf(
+                            "chat" to "Chat",
+                            "write" to "Write",
+                            "code" to "Code",
+                            "research" to "Research · Web search",
+                            "think" to "Think"
+                        ).forEach { (mode, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label, color = Color(0xFFE7EDF5), fontSize = 13.sp) },
+                                onClick = {
+                                    selectedMode = mode
+                                    modeMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                if (selectedMode == "research") {
+                    Spacer(Modifier.weight(1f))
+                    Text("LIVE WEB", color = Color(0xFF5DE0BD), fontSize = 8.sp, letterSpacing = 1.sp)
+                }
             }
 
             Row(
