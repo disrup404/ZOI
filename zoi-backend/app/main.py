@@ -127,17 +127,22 @@ async def chat(payload: ChatRequest, request: Request):
     body = {
         "model": selected_model,
         "messages": messages,
-        "temperature": 0.7,
         "max_tokens": 1200 if payload.mode in ("research", "think") else 900,
     }
+    if payload.mode == "think":
+        body["reasoning"] = {"effort": "high"}
+    else:
+        body["temperature"] = 0.7
 
     if payload.mode == "research":
+        body["max_tool_calls"] = 3
         body["tools"] = [{
             "type": "openrouter:web_search",
             "parameters": {
                 "engine": "auto",
                 "max_results": 5,
                 "max_uses": 3,
+                "max_total_results": 10,
                 "search_context_size": "medium",
             },
         }]
