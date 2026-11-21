@@ -2,6 +2,9 @@ package com.chronodisrupt.zoi
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -36,6 +39,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -440,54 +444,36 @@ private fun JaneChatScreen(
         onDispose { onStopListening() }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF090D13)) {
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 18.dp, vertical = 14.dp)
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 3.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("JANE", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
-                    Text("PERSONAL COMPANION", color = Color(0xFF718397), fontSize = 8.sp, letterSpacing = 2.sp)
-                }
+                Text("JANE", color = Color(0xFFF4F6FA), fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
                 Spacer(Modifier.weight(1f))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Box(Modifier.size(6.dp).background(if (busy) Color(0xFFFFB45B) else Color(0xFF5DE0BD), CircleShape))
-                    Text(status, color = Color(0xFF91A4B8), fontSize = 9.sp, letterSpacing = 1.sp)
-                }
+                Box(Modifier.size(6.dp).background(if (busy) Color(0xFFFFB45B) else Color(0xFF5DE0BD), CircleShape))
+                Spacer(Modifier.width(7.dp))
+                Text(status, color = Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 1.sp)
             }
-
-            Spacer(Modifier.height(10.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(
+                TextButton(
                     onClick = {
                         if (wakeWordActive) {
                             context.stopService(Intent(context, WakeWordService::class.java))
                             wakeWordActive = false
-                        } else {
-                            wakeWordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
+                        } else wakeWordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     },
-                    modifier = Modifier.weight(1f).height(42.dp),
-                    shape = RoundedCornerShape(13.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF34271F),
-                        contentColor = Color(0xFFFFC080)
-                    )
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
                 ) {
-                    Text(if (wakeWordActive) "DISABLE VOICE ACTIVATION" else "ENABLE VOICE ACTIVATION", fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 0.35.sp)
+                    Text(if (wakeWordActive) "VOICE ACTIVATION ON" else "VOICE ACTIVATION", color = if (wakeWordActive) Color(0xFF69DDBD) else Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 0.4.sp)
                 }
-                Button(
+                TextButton(
                     onClick = {
                         if (overlayActive) {
                             context.stopService(Intent(context, FloatingRobotService::class.java))
@@ -496,55 +482,15 @@ private fun JaneChatScreen(
                             context.startForegroundService(Intent(context, FloatingRobotService::class.java))
                             overlayActive = true
                         } else {
-                        val permissionIntent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        overlayPermissionLauncher.launch(permissionIntent)
-                    }
-                },
-                modifier = Modifier.weight(1f).height(42.dp),
-                shape = RoundedCornerShape(13.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1D2A39),
-                    contentColor = Color(0xFFFFB36A)
-                )
-            ) {
-                Text(if (overlayActive) "DISABLE OVERLAY" else "ENABLE OVERLAY", fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp)
+                            val permissionIntent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                            overlayPermissionLauncher.launch(permissionIntent)
+                        }
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(if (overlayActive) "OVERLAY ON" else "OVERLAY", color = if (overlayActive) Color(0xFF69DDBD) else Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 0.4.sp)
                 }
             }
-
-            Spacer(Modifier.height(4.dp))
-            Box(
-                modifier = Modifier.fillMaxWidth().height(206.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                RobotCompanion(listening = listening, thinking = busy)
-            }
-
-            Text(
-                when {
-                    listening -> "I'm listening."
-                    busy -> "Give me a second."
-                    else -> "What can I help you with today?"
-                },
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFEAF2FA),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                when {
-                    listening -> "Speak naturally. I'll send it when you're done."
-                    busy -> "Jane is working on your request."
-                    else -> "Talk to me, or type a message below."
-                },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                color = Color(0xFF8190A1),
-                fontSize = 12.sp
-            )
-
-            Spacer(Modifier.height(14.dp))
 
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -552,11 +498,14 @@ private fun JaneChatScreen(
             ) {
                 if (messages.isEmpty()) {
                     item {
-                        Text(
-                            "Your conversations will appear here.",
-                            color = Color(0xFF66778A),
-                            fontSize = 13.sp
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 72.dp, bottom = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("So. What's going on?", color = Color(0xFFEAF0F7), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Say something interesting. Or don't. I'm not your manager.", color = Color(0xFF8492A4), fontSize = 12.sp)
+                        }
                     }
                 }
                 items(messages) { message ->
@@ -565,30 +514,46 @@ private fun JaneChatScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
                     ) {
-                        Text(
-                            if (isUser) "YOU" else "JANE",
-                            color = if (isUser) Color(0xFF91A6BC) else Color(0xFFFFB36A),
-                            fontSize = 9.sp,
-                            letterSpacing = 1.6.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(5.dp))
+                        if (!isUser) {
+                            Text("JANE", color = Color(0xFFFFB36A), fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(5.dp))
+                        }
                         Surface(
-                            color = if (isUser) Color(0xFF182638) else Color(0xFF141C27),
+                            modifier = Modifier.widthIn(max = 328.dp),
+                            color = if (isUser) Color(0xFF243448) else Color(0xFF151E29),
                             shape = RoundedCornerShape(
-                                topStart = 15.dp,
-                                topEnd = 15.dp,
-                                bottomStart = if (isUser) 15.dp else 4.dp,
-                                bottomEnd = if (isUser) 4.dp else 15.dp
+                                topStart = 17.dp, topEnd = 17.dp,
+                                bottomStart = if (isUser) 17.dp else 5.dp,
+                                bottomEnd = if (isUser) 5.dp else 17.dp
                             )
                         ) {
                             Text(
                                 text = formatMessage(message.content),
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-                                color = Color(0xFFE7EDF5),
-                                fontSize = 14.sp,
-                                lineHeight = 22.sp
+                                modifier = Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+                                color = Color(0xFFE7EDF5), fontSize = 14.sp, lineHeight = 22.sp
                             )
+                        }
+                        if (!isUser) {
+                            Row(modifier = Modifier.padding(start = 2.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Jane's reply", message.content))
+                                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                    },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) { Text("COPY", color = Color(0xFF8B9BAE), fontSize = 9.sp, letterSpacing = 0.8.sp) }
+                                TextButton(
+                                    onClick = {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, message.content)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Jane's reply"))
+                                    },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) { Text("SHARE", color = Color(0xFF8B9BAE), fontSize = 9.sp, letterSpacing = 0.8.sp) }
+                            }
                         }
                     }
                 }
