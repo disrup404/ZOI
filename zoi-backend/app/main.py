@@ -11,7 +11,14 @@ from pydantic import BaseModel, Field
 
 APP_NAME = "Jane Core"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/auto")
+DEFAULT_MODE = "chat"
+MODELS = {
+    "chat": os.getenv("OPENROUTER_CHAT_MODEL", "openrouter/auto"),
+    "write": os.getenv("OPENROUTER_WRITE_MODEL", "anthropic/claude-sonnet-5.5"),
+    "code": os.getenv("OPENROUTER_CODE_MODEL", "deepseek/deepseek-v4.1-flash-1017"),
+    "research": os.getenv("OPENROUTER_RESEARCH_MODEL", "openrouter/auto"),
+    "think": os.getenv("OPENROUTER_THINK_MODEL", "openai/gpt-6.2-sol"),
+}
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jane.performance")
@@ -37,7 +44,7 @@ async def lifespan(app: FastAPI):
         limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
     )
     app.state.started_at = time.time()
-    logger.info("Jane Core started; configured_model=%s", MODEL)
+    logger.info("Jane Core started; configured_models=%s", MODELS)
     try:
         yield
     finally:
@@ -63,6 +70,7 @@ class HistoryMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
+    mode: Literal["chat", "write", "code", "research", "think"] = DEFAULT_MODE
 
 
 class ChatResponse(BaseModel):
@@ -83,7 +91,7 @@ async def health(request: Request):
         "status": "ok",
         "provider": "openrouter",
         "configured": bool(os.getenv("OPENROUTER_API_KEY")),
-        "model": MODEL,
+        "models": MODELS,
         "uptime_seconds": uptime_seconds,
     }
 
@@ -95,7 +103,18 @@ async def chat(payload: ChatRequest, request: Request):
     if not api_key:
         raise HTTPException(status_code=503, detail="Jane Core has not been configured with an AI provider key.")
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    selected_model = MODELS[payload.mode]
+    mode_instructions = {
+        "chat": "",
+        "write": "Focus on clear, natural writing. Preserve the user's intended meaning and voice.",
+        "code": "Act as a careful programming assistant. Explain important assumptions and provide correct, maintainable code.",
+        "research": "Use web search when current, factual, or source-based information would help. Verify claims against retrieved sources, distinguish facts from uncertainty, and cite sources with clickable markdown links. Never invent sources or claim to have searched if no search tool was used.",
+        "think": "Reason carefully through the problem. Give a clear conclusion and explain key considerations without exposing private chain-of-thought.",
+    }
+    system_message = SYSTEM_PROMPT
+    if mode_instructions[payload.mode]:
+        system_message += "\n\n" + mode_instructions[payload.mode]
+    messages = [{"role": "system", "content": system_message}]
     messages.extend({"role": item.role, "content": item.content} for item in payload.history[-20:])
     messages.append({"role": "user", "content": payload.message})
 
@@ -106,11 +125,22 @@ async def chat(payload: ChatRequest, request: Request):
         "X-Title": "Jane Personal AI Assistant",
     }
     body = {
-        "model": MODEL,
+        "model": selected_model,
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 900,
+        "max_tokens": 1200 if payload.mode in ("research", "think") else 900,
     }
+
+    if payload.mode == "research":
+        body["tools"] = [{
+            "type": "openrouter:web_search",
+            "parameters": {
+                "engine": "auto",
+                "max_results": 5,
+                "max_uses": 3,
+                "search_context_size": "medium",
+            },
+        }]
 
     try:
         provider_started = time.perf_counter()
@@ -133,7 +163,7 @@ async def chat(payload: ChatRequest, request: Request):
         if not isinstance(reply, str) or not reply.strip():
             raise ValueError("Empty model response")
 
-        actual_model = data.get("model", MODEL)
+        actual_model = data.get("model", selected_model)
         total_ms = round((time.perf_counter() - request_started) * 1000)
         logger.info(
             "chat_completed provider_ms=%s total_ms=%s model=%s history_messages=%s",
