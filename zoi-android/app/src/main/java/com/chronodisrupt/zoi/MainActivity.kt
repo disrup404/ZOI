@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
@@ -98,6 +100,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         textToSpeech = TextToSpeech(this, this)
+        // Wake the Render backend while the user is opening Jane, rather than
+        // making the first chat message pay the cold-start cost.
+        warmBackend()
         setContent {
             MaterialTheme {
                 JaneAppRoot(
@@ -348,8 +353,10 @@ private fun JaneChatScreen(
             .post(requestBody)
             .build()
 
+        val requestStartedAt = SystemClock.elapsedRealtime()
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                Log.w("JaneNetwork", "chat_failed elapsed_ms=${SystemClock.elapsedRealtime() - requestStartedAt}", e)
                 mainHandler.post {
                     busy = false
                     status = "SYSTEM ONLINE"
@@ -359,6 +366,7 @@ private fun JaneChatScreen(
 
             override fun onResponse(call: Call, response: Response) {
                 val responseText = response.body?.string().orEmpty()
+                Log.i("JaneNetwork", "chat_completed elapsed_ms=${SystemClock.elapsedRealtime() - requestStartedAt} http=${response.code}")
                 mainHandler.post {
                     busy = false
                     status = "SYSTEM ONLINE"
@@ -964,6 +972,39 @@ private fun matchAppLaunchCommand(message: String): Pair<String, String>? {
 }
 
 private const val API_BASE_URL = "https://zoi-core.onrender.com"
+
+private fun warmBackend() {
+    val startedAt = SystemClock.elapsedRealtime()
+    val request = Request.Builder()
+        .url("$API_BASE_URL/health")
+        .get()
+        .build()
+
+    httpClient.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            Log.w(
+                "JaneNetwork",
+                "backend_warmup_failed elapsed_ms=${SystemClock.elapsedRealtime() - startedAt}",
+                e
+            )
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            val body = response.body?.string().orEmpty()
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            val uptimeSeconds = try {
+                JSONObject(body).optDouble("uptime_seconds", -1.0)
+            } catch (_: Exception) {
+                -1.0
+            }
+            Log.i(
+                "JaneNetwork",
+                "backend_warmup_completed elapsed_ms=$elapsedMs server_uptime_seconds=$uptimeSeconds http=${response.code}"
+            )
+            response.close()
+        }
+    })
+}
 
 private val httpClient: OkHttpClient = OkHttpClient.Builder()
     .connectTimeout(20, TimeUnit.SECONDS)
