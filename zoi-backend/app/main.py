@@ -13,10 +13,10 @@ APP_NAME = "Jane Core"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODE = "chat"
 MODELS = {
-    "chat": os.getenv("OPENROUTER_CHAT_MODEL", "openrouter/auto"),
+    "chat": os.getenv("OPENROUTER_CHAT_MODEL", "openai/gpt-6-luna"),
     "write": os.getenv("OPENROUTER_WRITE_MODEL", "anthropic/claude-sonnet-5.5"),
     "code": os.getenv("OPENROUTER_CODE_MODEL", "deepseek/deepseek-v4.1-flash-1017"),
-    "research": os.getenv("OPENROUTER_RESEARCH_MODEL", "openrouter/auto"),
+    "research": os.getenv("OPENROUTER_RESEARCH_MODEL", "openai/gpt-6-luna"),
     "think": os.getenv("OPENROUTER_THINK_MODEL", "openai/gpt-6.2-sol"),
 }
 
