@@ -1,14 +1,20 @@
+import logging
 import os
+import time
+from contextlib import asynccontextmanager
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 APP_NAME = "Jane Core"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/auto")
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("jane.performance")
 
 SYSTEM_PROMPT = """You are Jane, a personal AI assistant.
 Be useful, clear, natural, and direct. Adapt your tone to the conversation.
@@ -23,7 +29,25 @@ immediate danger, encourage contacting local emergency services or a trusted
 person immediately.
 """
 
-app = FastAPI(title=APP_NAME, version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Reuse connections to OpenRouter across requests instead of creating a
+    # new HTTP client (and TCP/TLS connection) for every message.
+    app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(75.0, connect=15.0),
+        limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+    )
+    app.state.started_at = time.time()
+    logger.info("Jane Core started; configured_model=%s", MODEL)
+    try:
+        yield
+    finally:
+        await app.state.http_client.aclose()
+        logger.info("Jane Core HTTP client closed")
+
+
+app = FastAPI(title=APP_NAME, version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,21 +74,25 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"name": APP_NAME, "status": "online", "version": "0.1.0"}
+    return {"name": APP_NAME, "status": "online", "version": app.version}
 
 
 @app.get("/health")
-async def health():
+async def health(request: Request):
+    started_at = getattr(request.app.state, "started_at", None)
+    uptime_seconds = round(time.time() - started_at, 1) if started_at else None
     return {
         "status": "ok",
         "provider": "openrouter",
         "configured": bool(os.getenv("OPENROUTER_API_KEY")),
         "model": MODEL,
+        "uptime_seconds": uptime_seconds,
     }
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest):
+async def chat(payload: ChatRequest, request: Request):
+    request_started = time.perf_counter()
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="Jane Core has not been configured with an AI provider key.")
@@ -87,20 +115,43 @@ async def chat(payload: ChatRequest):
     }
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(75.0, connect=15.0)) as client:
-            response = await client.post(OPENROUTER_URL, headers=headers, json=body)
+        provider_started = time.perf_counter()
+        response = await request.app.state.http_client.post(
+            OPENROUTER_URL, headers=headers, json=body
+        )
+        provider_ms = round((time.perf_counter() - provider_started) * 1000)
         if response.is_error:
+            logger.warning(
+                "chat_failed provider_ms=%s status=%s",
+                provider_ms,
+                response.status_code,
+            )
             raise HTTPException(status_code=502, detail=f"The AI provider returned an error (HTTP {response.status_code}).")
+
         data = response.json()
         reply = data["choices"][0]["message"]["content"]
         if isinstance(reply, list):
             reply = "".join(part.get("text", "") for part in reply if isinstance(part, dict))
         if not isinstance(reply, str) or not reply.strip():
             raise ValueError("Empty model response")
-        return ChatResponse(reply=reply.strip(), model=data.get("model", MODEL))
+
+        actual_model = data.get("model", MODEL)
+        total_ms = round((time.perf_counter() - request_started) * 1000)
+        logger.info(
+            "chat_completed provider_ms=%s total_ms=%s model=%s history_messages=%s",
+            provider_ms,
+            total_ms,
+            actual_model,
+            len(payload.history),
+        )
+        return ChatResponse(reply=reply.strip(), model=actual_model)
     except HTTPException:
         raise
     except httpx.TimeoutException:
+        total_ms = round((time.perf_counter() - request_started) * 1000)
+        logger.warning("chat_timeout total_ms=%s", total_ms)
         raise HTTPException(status_code=504, detail="The AI request timed out. Please try again.")
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        total_ms = round((time.perf_counter() - request_started) * 1000)
+        logger.exception("chat_error total_ms=%s", total_ms)
         raise HTTPException(status_code=502, detail="Jane could not get a usable response from the AI provider.")
