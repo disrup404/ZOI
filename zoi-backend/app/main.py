@@ -257,7 +257,7 @@ async def chat(payload: ChatRequest, request: Request):
     if not api_key:
         raise HTTPException(status_code=503, detail="Jane Core has not been configured with an AI provider key.")
 
-    selected_model = MODELS[payload.mode]
+    selected_model = MODELS["chat"] if payload.screen_image_base64 else MODELS[payload.mode]
     mode_instructions = {
         "chat": "",
         "write": "Focus on clear, natural writing. Preserve the user's intended meaning and voice.",
