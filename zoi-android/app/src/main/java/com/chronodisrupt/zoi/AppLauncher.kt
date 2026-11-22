@@ -69,17 +69,6 @@ internal fun findLaunchableApp(
     }
 }
 
-internal fun parseAppLaunchCommand(message: String): String? {
-    val pattern = Regex(
-        """(?i)^\s*(?:(?:hey\s+)?(?:jane|zoi)[, ]*)?(?:please\s+)?(?:(?:can|could) you\s+)?(?:open|launch|start)\s+(?:the\s+)?(.+?)\s*[?.!]*$"""
-    )
-    val match = pattern.matchEntire(message.trim()) ?: return null
-    return match.groupValues[1]
-        .replace(Regex("""(?i)\s+for me$"""), "")
-        .trim()
-        .takeIf { it.isNotBlank() }
-}
-
 private fun normalizeAppName(value: String): String =
     value.lowercase(Locale.ROOT)
         .replace(Regex("[^a-z0-9]+"), " ")
