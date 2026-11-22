@@ -13,6 +13,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import android.util.Base64
 import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
@@ -323,6 +324,32 @@ private fun JaneChatScreen(
         }
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
+    var pendingScreenImage by remember { mutableStateOf<String?>(null) }
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val captureData = result.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && captureData != null) {
+            ScreenCaptureStore.onCaptured = { bytes ->
+                pendingScreenImage = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                messages.add(ChatMessage("assistant", "Captured one screen image. Ask me about it; it will be shared with your next message."))
+            }
+            ScreenCaptureStore.onFailed = {
+                messages.add(ChatMessage("assistant", "I couldn't capture the screen. Nothing was shared."))
+            }
+            val serviceIntent = Intent(context, JaneScreenCaptureService::class.java)
+                .putExtra(JaneScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                .putExtra(JaneScreenCaptureService.EXTRA_RESULT_DATA, captureData)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 26) context.startForegroundService(serviceIntent)
+                else context.startService(serviceIntent)
+            } catch (_: Exception) {
+                ScreenCaptureStore.onFailed?.invoke()
+            }
+        } else {
+            messages.add(ChatMessage("assistant", "Screen sharing was cancelled. Nothing was captured."))
+        }
+    }
     var dialAfterContactPick by remember { mutableStateOf(false) }
     var smsAfterContactPickMessage by remember { mutableStateOf<String?>(null) }
     val contactPicker = rememberLauncherForActivityResult(
@@ -583,12 +610,16 @@ private fun JaneChatScreen(
         messages.dropLast(1).takeLast(12).forEach { item ->
             history.put(JSONObject().put("role", item.role).put("content", item.content))
         }
+        val screenImageForRequest = pendingScreenImage
         val payload = JSONObject()
             .put("message", text)
             .put("history", history)
             .put("mode", selectedMode)
             .put("device_local_datetime", java.time.ZonedDateTime.now().toString())
             .put("device_timezone", java.time.ZoneId.systemDefault().id)
+        if (screenImageForRequest != null) {
+            payload.put("screen_image_base64", screenImageForRequest)
+        }
 
         if (notificationContextEnabled && JaneNotificationListener.hasNotificationAccess(context)) {
             val notificationContext = JSONArray()
@@ -645,6 +676,9 @@ private fun JaneChatScreen(
                                 responseJson.getString("reply")
                             }
                             messages.add(ChatMessage("assistant", reply))
+                            if (screenImageForRequest != null && pendingScreenImage == screenImageForRequest) {
+                                pendingScreenImage = null
+                            }
                             onSpeak(reply)
                         } catch (_: Exception) {
                             errorText = "Jane returned an unreadable response. Please try again."
@@ -697,7 +731,11 @@ private fun JaneChatScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { onStopListening() }
+        onDispose {
+            onStopListening()
+            ScreenCaptureStore.onCaptured = null
+            ScreenCaptureStore.onFailed = null
+        }
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
@@ -752,6 +790,24 @@ private fun JaneChatScreen(
                             else -> "NOTIFS OFF"
                         },
                         color = if (notificationContextEnabled && notificationAccess) Color(0xFF69DDBD) else Color(0xFF8291A3),
+                        fontSize = 9.sp,
+                        letterSpacing = 0.4.sp
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        try {
+                            val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+                            screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
+                        } catch (_: Exception) {
+                            messages.add(ChatMessage("assistant", "This Android version couldn't start screen sharing."))
+                        }
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        if (pendingScreenImage != null) "SCREEN READY" else "SCREEN",
+                        color = if (pendingScreenImage != null) Color(0xFF69DDBD) else Color(0xFF8291A3),
                         fontSize = 9.sp,
                         letterSpacing = 0.4.sp
                     )
