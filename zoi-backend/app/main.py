@@ -123,6 +123,17 @@ class CreateCalendarEventArgs(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
 
 
+class ComposeSmsArgs(BaseModel):
+    phone_number: str = Field(min_length=3, max_length=40)
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class ComposeEmailArgs(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    subject: str = Field(default="", max_length=200)
+    body: str = Field(min_length=1, max_length=8000)
+
+
 DEVICE_ACTION_SCHEMAS = {
     "open_app": "app",
     "open_contacts": {},
@@ -131,6 +142,8 @@ DEVICE_ACTION_SCHEMAS = {
     "set_alarm": SetAlarmArgs,
     "set_timer": SetTimerArgs,
     "create_calendar_event": CreateCalendarEventArgs,
+    "compose_sms": ComposeSmsArgs,
+    "compose_email": ComposeEmailArgs,
 }
 
 DEVICE_TOOLS = [
@@ -172,6 +185,23 @@ DEVICE_TOOLS = [
             "seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
             "label": {"type": "string", "maxLength": 80},
         }, "required": ["seconds"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "compose_sms",
+        "description": "Prepare an SMS in the phone's messaging app with a recipient number and message. The user reviews and taps Send; never send automatically. Ask for missing recipient or message details.",
+        "parameters": {"type": "object", "properties": {
+            "phone_number": {"type": "string", "minLength": 3, "maxLength": 40},
+            "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+        }, "required": ["phone_number", "message"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "compose_email",
+        "description": "Open an email composer with recipient, subject and body prefilled. The user reviews and taps Send; never send automatically. Ask for missing recipient or message details.",
+        "parameters": {"type": "object", "properties": {
+            "email": {"type": "string", "minLength": 3, "maxLength": 254},
+            "subject": {"type": "string", "maxLength": 200},
+            "body": {"type": "string", "minLength": 1, "maxLength": 8000},
+        }, "required": ["email", "body"], "additionalProperties": False},
     }},
     {"type": "function", "function": {
         "name": "create_calendar_event",
