@@ -797,6 +797,11 @@ private fun JaneChatScreen(
                 TextButton(
                     onClick = {
                         try {
+                            Toast.makeText(
+                                context,
+                                "The screenshot will be sent to Jane's AI provider with your next message.",
+                                Toast.LENGTH_LONG
+                            ).show()
                             val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
                             screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
                         } catch (_: Exception) {
