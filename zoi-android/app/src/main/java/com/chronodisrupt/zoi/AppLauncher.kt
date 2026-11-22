@@ -33,11 +33,11 @@ internal fun findLaunchableApp(
     val resolved = if (android.os.Build.VERSION.SDK_INT >= 33) {
         packageManager.queryIntentActivities(
             launcherIntent,
-            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+            PackageManager.ResolveInfoFlags.of(0L)
         )
     } else {
         @Suppress("DEPRECATION")
-        packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_DEFAULT_ONLY)
+        packageManager.queryIntentActivities(launcherIntent, 0)
     }
 
     val apps = resolved
