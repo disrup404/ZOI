@@ -128,6 +128,10 @@ class ComposeSmsArgs(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class ComposeSmsToContactArgs(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+
+
 class ComposeEmailArgs(BaseModel):
     email: str = Field(min_length=3, max_length=254)
     subject: str = Field(default="", max_length=200)
@@ -143,6 +147,7 @@ DEVICE_ACTION_SCHEMAS = {
     "set_timer": SetTimerArgs,
     "create_calendar_event": CreateCalendarEventArgs,
     "compose_sms": ComposeSmsArgs,
+    "compose_sms_to_contact": ComposeSmsToContactArgs,
     "compose_email": ComposeEmailArgs,
 }
 
@@ -193,6 +198,13 @@ DEVICE_TOOLS = [
             "phone_number": {"type": "string", "minLength": 3, "maxLength": 40},
             "message": {"type": "string", "minLength": 1, "maxLength": 4000},
         }, "required": ["phone_number", "message"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "compose_sms_to_contact",
+        "description": "Prepare a text message for a person in the user's contacts. Open the Android contact picker so the user chooses the recipient, then open the SMS composer with the message filled in. Never send automatically. Use only when the message is known; ask for the message if missing.",
+        "parameters": {"type": "object", "properties": {
+            "message": {"type": "string", "minLength": 1, "maxLength": 4000},
+        }, "required": ["message"], "additionalProperties": False},
     }},
     {"type": "function", "function": {
         "name": "compose_email",
