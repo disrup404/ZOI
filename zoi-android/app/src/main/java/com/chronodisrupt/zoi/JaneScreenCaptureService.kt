@@ -98,7 +98,10 @@ class JaneScreenCaptureService : Service() {
                 try {
                     val jpeg = imageToJpeg(image)
                     mainHandler.post {
-                        ScreenCaptureStore.onCaptured?.invoke(jpeg)
+                        val callback = ScreenCaptureStore.onCaptured
+                        ScreenCaptureStore.onCaptured = null
+                        ScreenCaptureStore.onFailed = null
+                        callback?.invoke(jpeg)
                         stopSelf()
                     }
                 } catch (_: Exception) {
@@ -158,7 +161,10 @@ class JaneScreenCaptureService : Service() {
 
     private fun failCapture() {
         mainHandler.post {
-            ScreenCaptureStore.onFailed?.invoke()
+            val callback = ScreenCaptureStore.onFailed
+            ScreenCaptureStore.onCaptured = null
+            ScreenCaptureStore.onFailed = null
+            callback?.invoke()
             stopSelf()
         }
     }
