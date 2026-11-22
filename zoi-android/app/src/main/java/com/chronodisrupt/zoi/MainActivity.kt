@@ -324,6 +324,7 @@ private fun JaneChatScreen(
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var dialAfterContactPick by remember { mutableStateOf(false) }
+    var smsAfterContactPickMessage by remember { mutableStateOf<String?>(null) }
     val contactPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -344,7 +345,19 @@ private fun JaneChatScreen(
             } catch (_: Exception) { null }
             if (selected != null) {
                 val (name, number) = selected
-                if (dialAfterContactPick && number.isNotBlank()) {
+                val smsMessage = smsAfterContactPickMessage
+                if (smsMessage != null && number.isNotBlank()) {
+                    try {
+                        val smsIntent = Intent(
+                            Intent.ACTION_SENDTO,
+                            Uri.parse("smsto:${Uri.encode(number)}")
+                        ).putExtra("sms_body", smsMessage)
+                        context.startActivity(smsIntent)
+                        messages.add(ChatMessage("assistant", "I've prepared the message for $name. Review it and tap Send."))
+                    } catch (_: Exception) {
+                        messages.add(ChatMessage("assistant", "I found $name, but couldn't open the SMS composer."))
+                    }
+                } else if (dialAfterContactPick && number.isNotBlank()) {
                     try {
                         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(number)}")))
                         messages.add(ChatMessage("assistant", "Opening the dialler for $name. You decide whether to place the call."))
@@ -359,6 +372,7 @@ private fun JaneChatScreen(
             }
         }
         dialAfterContactPick = false
+        smsAfterContactPickMessage = null
     }
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -466,6 +480,17 @@ private fun JaneChatScreen(
                     } catch (_: Exception) {
                         "I couldn't find a Clock app that accepts timer requests."
                     }
+                }
+            }
+            "compose_sms_to_contact" -> {
+                val message = args.optString("message").trim()
+                if (message.isBlank()) {
+                    "I need the message before I can prepare the text."
+                } else {
+                    smsAfterContactPickMessage = message
+                    dialAfterContactPick = false
+                    contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
+                    "Choose the recipient. I'll prepare the message in your SMS app; you decide whether to send it."
                 }
             }
             "compose_sms" -> {
