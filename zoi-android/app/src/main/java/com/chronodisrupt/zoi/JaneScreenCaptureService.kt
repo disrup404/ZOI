@@ -86,6 +86,7 @@ class JaneScreenCaptureService : Service() {
             activeProjection.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
                     releaseCaptureResources()
+                    projection = null
                     stopSelf()
                 }
             }, mainHandler)
@@ -148,7 +149,7 @@ class JaneScreenCaptureService : Service() {
         val output = ByteArrayOutputStream()
         scaled.compress(Bitmap.CompressFormat.JPEG, 68, output)
         if (scaled !== cropped) scaled.recycle()
-        cropped.recycle()
+        if (cropped !== padded) cropped.recycle()
         padded.recycle()
         return output.toByteArray()
     }
