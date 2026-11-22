@@ -377,6 +377,96 @@ private fun JaneChatScreen(
     var status by remember { mutableStateOf("SYSTEM ONLINE") }
     var errorText by remember { mutableStateOf("") }
 
+    fun executeDeviceAction(action: JSONObject): String {
+        val args = action.optJSONObject("arguments") ?: JSONObject()
+        return when (action.optString("name")) {
+            "open_contacts" -> {
+                dialAfterContactPick = false
+                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
+                "Choose a contact. I’ll only receive the details you select."
+            }
+            "dial_contact" -> {
+                dialAfterContactPick = true
+                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
+                "Choose the contact. I’ll open the dialler with their number; you still place the call."
+            }
+            "open_file" -> {
+                filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                })
+                "Choose a file. Android will grant access only to the file you select."
+            }
+            "set_alarm" -> {
+                val hour = args.optInt("hour", -1)
+                val minute = args.optInt("minute", -1)
+                if (hour !in 0..23 || minute !in 0..59) {
+                    "I couldn't use that alarm time. Tell me the time again."
+                } else {
+                    try {
+                        val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+                            .putExtra(AlarmClock.EXTRA_HOUR, hour)
+                            .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+                            .putExtra(AlarmClock.EXTRA_MESSAGE, args.optString("label", "Jane alarm"))
+                            .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                        context.startActivity(intent)
+                        "Opening Clock to set the alarm. Confirm it there; I won't pretend it's saved before Android says so."
+                    } catch (_: Exception) {
+                        "I couldn't find a Clock app that accepts alarm requests."
+                    }
+                }
+            }
+            "set_timer" -> {
+                val seconds = args.optInt("seconds", -1)
+                if (seconds !in 1..86400) {
+                    "That timer duration isn't valid. Try a duration between one second and 24 hours."
+                } else {
+                    try {
+                        val intent = Intent(AlarmClock.ACTION_SET_TIMER)
+                            .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+                            .putExtra(AlarmClock.EXTRA_MESSAGE, args.optString("label", ""))
+                            .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                        context.startActivity(intent)
+                        "Opening Clock to set a $seconds-second timer. Confirm it there."
+                    } catch (_: Exception) {
+                        "I couldn't find a Clock app that accepts timer requests."
+                    }
+                }
+            }
+            "create_calendar_event" -> {
+                val title = args.optString("title").trim()
+                if (title.isBlank()) {
+                    "I need a title before I can open a calendar event."
+                } else {
+                    try {
+                        val intent = Intent(Intent.ACTION_INSERT)
+                            .setData(CalendarContract.Events.CONTENT_URI)
+                            .putExtra(CalendarContract.Events.TITLE, title)
+                        val startAt = args.optString("start_at")
+                        val endAt = args.optString("end_at")
+                        if (startAt.isNotBlank()) {
+                            val startMillis = java.time.LocalDateTime.parse(startAt)
+                                .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                            intent.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+                            if (endAt.isNotBlank()) {
+                                val endMillis = java.time.LocalDateTime.parse(endAt)
+                                    .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                                intent.putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+                            }
+                        }
+                        if (args.has("location")) intent.putExtra(CalendarContract.Events.EVENT_LOCATION, args.optString("location"))
+                        if (args.has("description")) intent.putExtra(CalendarContract.Events.DESCRIPTION, args.optString("description"))
+                        context.startActivity(intent)
+                        "Opening your calendar with “$title” prefilled. Review the details and save it there."
+                    } catch (_: Exception) {
+                        "I couldn't open the calendar event editor. Check the date and time and try again."
+                    }
+                }
+            }
+            else -> "I understood the request, but that device action isn't supported yet."
+        }
+    }
+
     fun sendText(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || busy) return
@@ -422,68 +512,6 @@ private fun JaneChatScreen(
             return
         }
 
-        when (val action = parseDeviceCommand(text)) {
-            DeviceCommand.OpenContacts -> {
-                dialAfterContactPick = false
-                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
-                messages.add(ChatMessage("assistant", "Choose a contact. I’ll only receive the contact details you select."))
-                onSpeak("Choose a contact.")
-                return
-            }
-            DeviceCommand.DialContact -> {
-                dialAfterContactPick = true
-                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
-                messages.add(ChatMessage("assistant", "Choose the contact. I’ll open the dialler with their number; you still place the call."))
-                onSpeak("Choose the contact.")
-                return
-            }
-            is DeviceCommand.CreateCalendarEvent -> {
-                val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
-                    .putExtra(CalendarContract.Events.TITLE, action.title)
-                try {
-                    context.startActivity(intent)
-                    messages.add(ChatMessage("assistant", "Opening your calendar to create “${action.title}”. Review the details and save it there."))
-                } catch (_: Exception) {
-                    messages.add(ChatMessage("assistant", "I couldn't find a calendar app that can create events on this phone."))
-                }
-                return
-            }
-            is DeviceCommand.SetAlarm -> {
-                val intent = Intent(AlarmClock.ACTION_SET_ALARM)
-                    .putExtra(AlarmClock.EXTRA_HOUR, action.hour)
-                    .putExtra(AlarmClock.EXTRA_MINUTES, action.minute)
-                    .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                try {
-                    context.startActivity(intent)
-                    messages.add(ChatMessage("assistant", "Opening the Clock app to set the alarm. Confirm it there."))
-                } catch (_: Exception) {
-                    messages.add(ChatMessage("assistant", "I couldn't find a Clock app that accepts alarm requests."))
-                }
-                return
-            }
-            is DeviceCommand.SetTimer -> {
-                val intent = Intent(AlarmClock.ACTION_SET_TIMER)
-                    .putExtra(AlarmClock.EXTRA_LENGTH, action.seconds)
-                    .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-                try {
-                    context.startActivity(intent)
-                    messages.add(ChatMessage("assistant", "Opening the Clock app to set a ${action.seconds}-second timer. Confirm it there."))
-                } catch (_: Exception) {
-                    messages.add(ChatMessage("assistant", "I couldn't find a Clock app that accepts timer requests."))
-                }
-                return
-            }
-            DeviceCommand.OpenFile -> {
-                filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                })
-                messages.add(ChatMessage("assistant", "Choose a file. Android will grant access only to the file you select."))
-                onSpeak("Choose a file.")
-                return
-            }
-            null -> Unit
-        }
 
         busy = true
         status = "THINKING"
@@ -526,7 +554,13 @@ private fun JaneChatScreen(
                         }
                     } else {
                         try {
-                            val reply = JSONObject(responseText).getString("reply")
+                            val responseJson = JSONObject(responseText)
+                            val action = responseJson.optJSONObject("action")
+                            val reply = if (action != null) {
+                                executeDeviceAction(action)
+                            } else {
+                                responseJson.getString("reply")
+                            }
                             messages.add(ChatMessage("assistant", reply))
                             onSpeak(reply)
                         } catch (_: Exception) {
