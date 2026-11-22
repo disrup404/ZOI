@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.provider.CalendarContract
+import android.provider.ContactsContract
+import android.provider.AlarmClock
+import android.provider.OpenableColumns
 import android.widget.Toast
 import android.net.Uri
 import android.os.Bundle
@@ -303,6 +307,56 @@ private fun JaneChatScreen(
             overlayActive = true
         }
     }
+    var dialAfterContactPick by remember { mutableStateOf(false) }
+    val contactPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val contactUri = result.data?.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && contactUri != null) {
+            val projection = arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+            val selected = try {
+                context.contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val name = cursor.getString(0).orEmpty()
+                        val number = cursor.getString(1).orEmpty()
+                        name to number
+                    } else null
+                }
+            } catch (_: Exception) { null }
+            if (selected != null) {
+                val (name, number) = selected
+                if (dialAfterContactPick && number.isNotBlank()) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${Uri.encode(number)}")))
+                        messages.add(ChatMessage("assistant", "Opening the dialler for $name. You decide whether to place the call."))
+                    } catch (_: Exception) {
+                        messages.add(ChatMessage("assistant", "I found $name, but couldn't open the dialler."))
+                    }
+                } else {
+                    messages.add(ChatMessage("assistant", if (number.isBlank()) "Selected $name, but no phone number was available." else "Selected $name: $number"))
+                }
+            } else {
+                messages.add(ChatMessage("assistant", "I couldn't read that contact. Try selecting it again."))
+            }
+        }
+        dialAfterContactPick = false
+    }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val fileUri = result.data?.data
+        if (result.resultCode == android.app.Activity.RESULT_OK && fileUri != null) {
+            val displayName = try {
+                context.contentResolver.query(fileUri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            } catch (_: Exception) { null }
+            messages.add(ChatMessage("assistant", "File selected: ${displayName ?: "unnamed file"}. I have access to this file through the permission Android granted for this selection."))
+        }
+    }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var selectedMode by remember { mutableStateOf("chat") }
@@ -355,6 +409,69 @@ private fun JaneChatScreen(
             }
             status = "SYSTEM ONLINE"
             return
+        }
+
+        when (val action = parseDeviceCommand(text)) {
+            DeviceCommand.OpenContacts -> {
+                dialAfterContactPick = false
+                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                messages.add(ChatMessage("assistant", "Choose a contact. I’ll only receive the contact details you select."))
+                onSpeak("Choose a contact.")
+                return
+            }
+            DeviceCommand.DialContact -> {
+                dialAfterContactPick = true
+                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                messages.add(ChatMessage("assistant", "Choose the contact. I’ll open the dialler with their number; you still place the call."))
+                onSpeak("Choose the contact.")
+                return
+            }
+            is DeviceCommand.CreateCalendarEvent -> {
+                val intent = Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
+                    .putExtra(CalendarContract.Events.TITLE, action.title)
+                try {
+                    context.startActivity(intent)
+                    messages.add(ChatMessage("assistant", "Opening your calendar to create “${action.title}”. Review the details and save it there."))
+                } catch (_: Exception) {
+                    messages.add(ChatMessage("assistant", "I couldn't find a calendar app that can create events on this phone."))
+                }
+                return
+            }
+            is DeviceCommand.SetAlarm -> {
+                val intent = Intent(AlarmClock.ACTION_SET_ALARM)
+                    .putExtra(AlarmClock.EXTRA_HOUR, action.hour)
+                    .putExtra(AlarmClock.EXTRA_MINUTES, action.minute)
+                    .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                try {
+                    context.startActivity(intent)
+                    messages.add(ChatMessage("assistant", "Opening the Clock app to set the alarm. Confirm it there."))
+                } catch (_: Exception) {
+                    messages.add(ChatMessage("assistant", "I couldn't find a Clock app that accepts alarm requests."))
+                }
+                return
+            }
+            is DeviceCommand.SetTimer -> {
+                val intent = Intent(AlarmClock.ACTION_SET_TIMER)
+                    .putExtra(AlarmClock.EXTRA_LENGTH, action.seconds)
+                    .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                try {
+                    context.startActivity(intent)
+                    messages.add(ChatMessage("assistant", "Opening the Clock app to set a ${action.seconds}-second timer. Confirm it there."))
+                } catch (_: Exception) {
+                    messages.add(ChatMessage("assistant", "I couldn't find a Clock app that accepts timer requests."))
+                }
+                return
+            }
+            DeviceCommand.OpenFile -> {
+                filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                })
+                messages.add(ChatMessage("assistant", "Choose a file. Android will grant access only to the file you select."))
+                onSpeak("Choose a file.")
+                return
+            }
+            null -> Unit
         }
 
         busy = true
