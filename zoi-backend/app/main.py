@@ -290,7 +290,7 @@ async def chat(payload: ChatRequest, request: Request):
             image_bytes = base64.b64decode(payload.screen_image_base64, validate=True)
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="The shared screen image was not valid.")
-        if len(image_bytes) > 4_000_000 or not image_bytes.startswith(b"\\xff\\xd8"):
+        if len(image_bytes) > 4_000_000 or not image_bytes.startswith(b"\xff\xd8"):
             raise HTTPException(status_code=400, detail="The shared screen image must be a JPEG under 4 MB.")
         user_content = [
             {"type": "text", "text": payload.message},
