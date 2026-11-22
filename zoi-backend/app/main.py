@@ -84,6 +84,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     model: str
+    action: dict | None = None
 
 class DeviceActionResponse(BaseModel):
     name: str
@@ -268,7 +269,7 @@ async def chat(payload: ChatRequest, request: Request):
                 if isinstance(raw_arguments, str):
                     import json
                     raw_arguments = json.loads(raw_arguments)
-                if action_model is dict:
+                if isinstance(action_model, dict):
                     arguments = {}
                 else:
                     arguments = action_model.model_validate(raw_arguments).model_dump(exclude_none=True)
