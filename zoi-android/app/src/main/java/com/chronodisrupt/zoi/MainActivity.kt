@@ -380,6 +380,26 @@ private fun JaneChatScreen(
     fun executeDeviceAction(action: JSONObject): String {
         val args = action.optJSONObject("arguments") ?: JSONObject()
         return when (action.optString("name")) {
+            "open_app" -> {
+                val appName = args.optString("app_name").trim()
+                when (val lookup = findLaunchableApp(context.packageManager, appName)) {
+                    is AppLaunchLookup.Found -> {
+                        val app = lookup.app
+                        try {
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                            if (launchIntent == null) "I found ${app.label}, but Android didn't provide a launch action for it."
+                            else {
+                                context.startActivity(launchIntent)
+                                "Opening ${app.label}."
+                            }
+                        } catch (_: Exception) {
+                            "I couldn't open ${app.label}. Android blocked the launch."
+                        }
+                    }
+                    is AppLaunchLookup.Ambiguous -> "I found more than one match: ${lookup.apps.joinToString(", ") { it.label }}. Which one did you mean?"
+                    AppLaunchLookup.NotFound -> "I couldn't find an installed app called \"$appName\"."
+                }
+            }
             "open_contacts" -> {
                 dialAfterContactPick = false
                 contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
@@ -474,43 +494,6 @@ private fun JaneChatScreen(
         errorText = ""
         messages.add(ChatMessage("user", text))
         input = ""
-
-        // Resolve app launches locally. The model never supplies package IDs,
-        // intents, or executable commands.
-        val appCommand = parseAppLaunchCommand(text)
-        if (appCommand != null) {
-            when (val lookup = findLaunchableApp(context.packageManager, appCommand)) {
-                is AppLaunchLookup.Found -> {
-                    val app = lookup.app
-                    val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                    val reply = try {
-                        if (launchIntent == null) {
-                            "I found ${app.label}, but Android didn't provide a launch action for it."
-                        } else {
-                            context.startActivity(launchIntent)
-                            "Opening ${app.label}."
-                        }
-                    } catch (_: Exception) {
-                        "I couldn't open ${app.label}. Android blocked the launch."
-                    }
-                    messages.add(ChatMessage("assistant", reply))
-                    onSpeak(reply)
-                }
-                is AppLaunchLookup.Ambiguous -> {
-                    val names = lookup.apps.joinToString(", ") { it.label }
-                    val reply = "I found more than one match: $names. Which one did you mean?"
-                    messages.add(ChatMessage("assistant", reply))
-                    onSpeak(reply)
-                }
-                AppLaunchLookup.NotFound -> {
-                    val reply = "I couldn't find an installed app called \"$appCommand\". Try the app's home-screen name."
-                    messages.add(ChatMessage("assistant", reply))
-                    onSpeak(reply)
-                }
-            }
-            status = "SYSTEM ONLINE"
-            return
-        }
 
 
         busy = true
