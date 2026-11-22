@@ -147,7 +147,9 @@ class JaneScreenCaptureService : Service() {
             )
         } else cropped
         val output = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, 68, output)
+        if (!scaled.compress(Bitmap.CompressFormat.JPEG, 68, output)) {
+            throw IllegalStateException("JPEG encoding failed")
+        }
         if (scaled !== cropped) scaled.recycle()
         if (cropped !== padded) cropped.recycle()
         padded.recycle()
