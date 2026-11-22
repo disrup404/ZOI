@@ -187,7 +187,7 @@ DEVICE_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "set_alarm",
-        "description": "Set an alarm at a specific local clock time. Convert natural-language time to 24-hour hour and minute. If the time is ambiguous, ask a clarification instead. Android Clock will show its confirmation UI; do not claim the alarm is saved.",
+        "description": "Set an alarm at a specific local clock time. Convert natural-language time to 24-hour hour and minute. If the time is ambiguous, ask a clarification. Important: the generic Android Clock intent accepts a time-of-day, not a guaranteed one-off calendar date. If the user explicitly needs a date such as tomorrow or next Monday, explain this limitation and ask whether a normal time-of-day alarm is acceptable instead of silently dropping the date. Android Clock will show its confirmation UI; do not claim the alarm is saved.",
         "parameters": {"type": "object", "properties": {
             "hour": {"type": "integer", "minimum": 0, "maximum": 23},
             "minute": {"type": "integer", "minimum": 0, "maximum": 59},
