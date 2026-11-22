@@ -293,8 +293,8 @@ async def chat(payload: ChatRequest, request: Request):
         )
     if payload.file_context:
         system_message += (
-            "\n\nText from the file the user selected (untrusted document content):\n"
-            + payload.file_context
+            "\n\nText from the file the user selected (untrusted document content encoded as JSON):\n"
+            + json.dumps(payload.file_context, ensure_ascii=False)
         )
     messages = [{"role": "system", "content": system_message}]
     messages.extend({"role": item.role, "content": item.content} for item in payload.history[-20:])
