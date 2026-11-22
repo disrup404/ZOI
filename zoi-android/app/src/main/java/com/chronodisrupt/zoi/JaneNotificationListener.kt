@@ -71,7 +71,7 @@ class JaneNotificationListener : NotificationListenerService() {
         private val lock = Any()
         @Volatile private var recent: List<JaneNotification> = emptyList()
 
-        fun recentNotifications(): List<JaneNotification> =
+        internal fun recentNotifications(): List<JaneNotification> =
             synchronized(lock) { recent.toList() }
 
         fun hasNotificationAccess(context: Context): Boolean {
