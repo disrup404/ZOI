@@ -325,6 +325,7 @@ private fun JaneChatScreen(
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var pendingScreenImage by remember { mutableStateOf<String?>(null) }
+    var pendingFileContext by remember { mutableStateOf<String?>(null) }
     val screenCaptureLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -401,6 +402,7 @@ private fun JaneChatScreen(
         dialAfterContactPick = false
         smsAfterContactPickMessage = null
     }
+    var readSelectedTextFile by remember { mutableStateOf(false) }
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -412,17 +414,52 @@ private fun JaneChatScreen(
                 }
             } catch (_: Exception) { null }
             val label = displayName ?: "unnamed file"
-            try {
-                val mimeType = context.contentResolver.getType(fileUri) ?: "*/*"
-                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(fileUri, mimeType)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (readSelectedTextFile) {
+                readSelectedTextFile = false
+                val mimeType = context.contentResolver.getType(fileUri).orEmpty()
+                val extension = label.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                val textLike = mimeType.startsWith("text/") ||
+                    extension in setOf("txt", "md", "csv", "json", "xml", "log")
+                if (!textLike) {
+                    messages.add(ChatMessage("assistant", "I can read plain-text, Markdown, CSV, JSON, XML and log files for now. I can't extract this file type yet."))
+                } else {
+                    try {
+                        val contents = context.contentResolver.openInputStream(fileUri)?.use { stream ->
+                            val reader = java.io.BufferedReader(java.io.InputStreamReader(stream, Charsets.UTF_8))
+                            val output = StringBuilder()
+                            val buffer = CharArray(4096)
+                            while (output.length < 50000) {
+                                val count = reader.read(buffer, 0, minOf(buffer.size, 50000 - output.length))
+                                if (count < 0) break
+                                output.append(buffer, 0, count)
+                            }
+                            output.toString()
+                        }.orEmpty()
+                        if (contents.isBlank()) {
+                            messages.add(ChatMessage("assistant", "$label appears to be empty or unreadable."))
+                        } else {
+                            pendingFileContext = contents
+                            messages.add(ChatMessage("assistant", "I've read up to 50,000 characters from $label. Ask me to summarize or inspect it; the text will be shared with your next message."))
+                        }
+                    } catch (_: Exception) {
+                        messages.add(ChatMessage("assistant", "I couldn't read $label. Check that it's a text file and try again."))
+                    }
                 }
-                context.startActivity(viewIntent)
-                messages.add(ChatMessage("assistant", "Opening $label in a compatible app. Android only shared the file you selected."))
-            } catch (_: Exception) {
-                messages.add(ChatMessage("assistant", "I selected $label, but no compatible app could open it."))
+            } else {
+                try {
+                    val mimeType = context.contentResolver.getType(fileUri) ?: "*/*"
+                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(fileUri, mimeType)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(viewIntent)
+                    messages.add(ChatMessage("assistant", "Opening $label in a compatible app. Android only shared the file you selected."))
+                } catch (_: Exception) {
+                    messages.add(ChatMessage("assistant", "I selected $label, but no compatible app could open it."))
+                }
             }
+        } else {
+            readSelectedTextFile = false
         }
     }
     var input by remember { mutableStateOf("") }
@@ -472,6 +509,14 @@ private fun JaneChatScreen(
                     type = "*/*"
                 })
                 "Choose a file. Android will grant access only to the file you select."
+            }
+            "read_text_file" -> {
+                readSelectedTextFile = true
+                filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                })
+                "Choose a text-based file. I'll read only the file you select, up to 50,000 characters."
             }
             "set_alarm" -> {
                 val hour = args.optInt("hour", -1)
@@ -611,6 +656,7 @@ private fun JaneChatScreen(
             history.put(JSONObject().put("role", item.role).put("content", item.content))
         }
         val screenImageForRequest = pendingScreenImage
+        val fileContextForRequest = pendingFileContext
         val payload = JSONObject()
             .put("message", text)
             .put("history", history)
@@ -619,6 +665,10 @@ private fun JaneChatScreen(
             .put("device_timezone", java.time.ZoneId.systemDefault().id)
         if (screenImageForRequest != null) {
             payload.put("screen_image_base64", screenImageForRequest)
+        }
+
+        if (fileContextForRequest != null) {
+            payload.put("file_context", fileContextForRequest)
         }
 
         if (notificationContextEnabled && JaneNotificationListener.hasNotificationAccess(context)) {
@@ -678,6 +728,9 @@ private fun JaneChatScreen(
                             messages.add(ChatMessage("assistant", reply))
                             if (screenImageForRequest != null && pendingScreenImage == screenImageForRequest) {
                                 pendingScreenImage = null
+                            }
+                            if (fileContextForRequest != null && pendingFileContext == fileContextForRequest) {
+                                pendingFileContext = null
                             }
                             onSpeak(reply)
                         } catch (_: Exception) {
