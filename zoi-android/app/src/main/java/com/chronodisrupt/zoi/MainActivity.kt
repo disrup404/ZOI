@@ -490,6 +490,10 @@ private fun JaneChatScreen(
     var listening by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("SYSTEM ONLINE") }
     var errorText by remember { mutableStateOf("") }
+    var pendingTaskActions by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var taskStepIndex by remember { mutableStateOf(0) }
+    var taskExecutionStarted by remember { mutableStateOf(false) }
+    var taskStepStatus by remember { mutableStateOf("") }
 
     fun executeDeviceAction(action: JSONObject): String {
         val args = action.optJSONObject("arguments") ?: JSONObject()
@@ -661,6 +665,26 @@ private fun JaneChatScreen(
         }
     }
 
+    fun describeDeviceAction(action: JSONObject): String {
+        val args = action.optJSONObject("arguments") ?: JSONObject()
+        return when (action.optString("name")) {
+            "open_app" -> "Open ${args.optString("app_name")}"
+            "open_contacts" -> "Choose a contact"
+            "dial_contact" -> "Choose a contact and open the dialler"
+            "open_file" -> "Choose and open a file"
+            "read_text_file" -> "Choose a text file for Jane to read"
+            "set_alarm" -> "Set alarm for %02d:%02d".format(
+                Locale.getDefault(), args.optInt("hour"), args.optInt("minute")
+            )
+            "set_timer" -> "Start a ${args.optInt("seconds")} second timer"
+            "create_calendar_event" -> "Create calendar event: ${args.optString("title")}"
+            "compose_sms_to_contact" -> "Prepare text for a contact: ${args.optString("message").take(65)}"
+            "compose_sms" -> "Prepare SMS to ${args.optString("phone_number")}: ${args.optString("message").take(65)}"
+            "compose_email" -> "Prepare email to ${args.optString("email")}: ${args.optString("subject")}"
+            else -> "Unsupported action"
+        }
+    }
+
     fun sendText(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || busy) return
@@ -741,11 +765,26 @@ private fun JaneChatScreen(
                     } else {
                         try {
                             val responseJson = JSONObject(responseText)
-                            val action = responseJson.optJSONObject("action")
-                            val reply = if (action != null) {
-                                executeDeviceAction(action)
-                            } else {
-                                responseJson.getString("reply")
+                            val responseActions = responseJson.optJSONArray("actions")
+                            val plannedActions = mutableListOf<JSONObject>()
+                            if (responseActions != null) {
+                                for (index in 0 until responseActions.length()) {
+                                    responseActions.optJSONObject(index)?.let(plannedActions::add)
+                                }
+                            }
+                            val legacyAction = responseJson.optJSONObject("action")
+                            val modelReply = responseJson.optString("reply")
+                            val reply = when {
+                                plannedActions.size > 1 -> {
+                                    pendingTaskActions = plannedActions
+                                    taskStepIndex = 0
+                                    taskExecutionStarted = false
+                                    taskStepStatus = "Review the steps. Jane will wait for your approval before starting."
+                                    modelReply.ifBlank { "I've organised this into ${plannedActions.size} steps. Review the plan before I start." }
+                                }
+                                plannedActions.size == 1 -> executeDeviceAction(plannedActions.first())
+                                legacyAction != null -> executeDeviceAction(legacyAction)
+                                else -> modelReply
                             }
                             messages.add(ChatMessage("assistant", reply))
                             if (screenImageForRequest != null && pendingScreenImage == screenImageForRequest) {
@@ -932,6 +971,119 @@ private fun JaneChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(if (overlayActive) "OVERLAY ON" else "OVERLAY", color = if (overlayActive) Color(0xFF69DDBD) else Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 0.4.sp)
+                }
+            }
+
+            if (pendingTaskActions.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    color = Color(0xFF172331),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(Modifier.padding(13.dp)) {
+                        Text(
+                            if (taskExecutionStarted) "TASK IN PROGRESS" else "TASK PLAN",
+                            color = Color(0xFFFFB36A),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        pendingTaskActions.forEachIndexed { index, action ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    "${index + 1}.",
+                                    color = Color(0xFF91A4B8),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.width(22.dp)
+                                )
+                                Text(
+                                    describeDeviceAction(action),
+                                    color = if (taskExecutionStarted && index < taskStepIndex) Color(0xFF7B8B9B) else Color(0xFFE5ECF4),
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            taskStepStatus,
+                            color = Color(0xFF9AABBD),
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!taskExecutionStarted) {
+                                Button(
+                                    onClick = {
+                                        val firstResult = executeDeviceAction(pendingTaskActions.first())
+                                        messages.add(ChatMessage("assistant", "Step 1 of ${pendingTaskActions.size}: $firstResult"))
+                                        onSpeak(firstResult)
+                                        taskStepIndex = 1
+                                        taskExecutionStarted = true
+                                        taskStepStatus = if (pendingTaskActions.size > 1) {
+                                            "Finish this step in the app that opened, return to Jane, then continue."
+                                        } else {
+                                            "The first step has been launched. Complete any confirmation in Android."
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA85D), contentColor = Color(0xFF17110D)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("START PLAN", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else if (taskStepIndex < pendingTaskActions.size) {
+                                Button(
+                                    onClick = {
+                                        val index = taskStepIndex
+                                        val result = executeDeviceAction(pendingTaskActions[index])
+                                        messages.add(ChatMessage("assistant", "Step ${index + 1} of ${pendingTaskActions.size}: $result"))
+                                        onSpeak(result)
+                                        taskStepIndex = index + 1
+                                        taskStepStatus = if (taskStepIndex < pendingTaskActions.size) {
+                                            "Finish this step, return to Jane, then continue."
+                                        } else {
+                                            "All steps have been launched. Complete any final confirmations in the apps Android opened."
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA85D), contentColor = Color(0xFF17110D)),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("CONTINUE", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Text(
+                                    "PLAN LAUNCHED",
+                                    color = Color(0xFF69DDBD),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(vertical = 12.dp)
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    pendingTaskActions = emptyList()
+                                    taskStepIndex = 0
+                                    taskExecutionStarted = false
+                                    taskStepStatus = ""
+                                    messages.add(ChatMessage("assistant", "Stopped the remaining steps. Anything already opened is unaffected."))
+                                },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("STOP", color = Color(0xFFFF9B91), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Text(
+                            "Each step needs your tap. Sending, saving and placing calls still require your confirmation.",
+                            color = Color(0xFF718397),
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
                 }
             }
 
