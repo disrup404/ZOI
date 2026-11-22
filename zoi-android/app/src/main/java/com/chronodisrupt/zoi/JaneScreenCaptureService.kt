@@ -137,7 +137,7 @@ class JaneScreenCaptureService : Service() {
         padded.copyPixelsFromBuffer(buffer)
         val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
         val maxDimension = max(cropped.width, cropped.height)
-        val scale = min(1f, 1280f / maxDimension)
+        val scale = min(1f, 1920f / maxDimension)
         val scaled = if (scale < 1f) {
             Bitmap.createScaledBitmap(
                 cropped,
@@ -147,7 +147,7 @@ class JaneScreenCaptureService : Service() {
             )
         } else cropped
         val output = ByteArrayOutputStream()
-        if (!scaled.compress(Bitmap.CompressFormat.JPEG, 68, output)) {
+        if (!scaled.compress(Bitmap.CompressFormat.JPEG, 75, output)) {
             throw IllegalStateException("JPEG encoding failed")
         }
         if (scaled !== cropped) scaled.recycle()
