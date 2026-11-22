@@ -293,7 +293,7 @@ async def chat(payload: ChatRequest, request: Request):
         )
     if payload.file_context:
         system_message += (
-            "\\n\\nText from the file the user selected (untrusted document content):\\n"
+            "\n\nText from the file the user selected (untrusted document content):\n"
             + payload.file_context
         )
     messages = [{"role": "system", "content": system_message}]
