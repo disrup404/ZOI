@@ -16,7 +16,11 @@ internal sealed class DeviceCommand {
  * The model cannot supply arbitrary intents, package names, or commands.
  */
 internal fun parseDeviceCommand(message: String): DeviceCommand? {
-    // Speech transcripts and normal typed messages often include terminal punctuation.\n    // Remove it before matching so commands like "Set an alarm for 6:30 AM." work.\n    val text = message.trim().lowercase(Locale.ROOT)\n        .replace(Regex("""[.!?,;:]+$"""), "")\n        .trim()
+    // Speech transcripts and normal typed messages often include terminal punctuation.
+    // Remove it before matching so commands like "Set an alarm for 6:30 AM." work.
+    val text = message.trim().lowercase(Locale.ROOT)
+        .replace(Regex("""[.!?,;:]+$"""), "")
+        .trim()
 
     if (Regex("""^(?:open|show|choose|pick) (?:my )?(?:contacts|contact list)$""").matches(text) ||
         Regex("""^(?:find|select|choose|pick) (?:a )?contact$""").matches(text)
