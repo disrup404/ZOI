@@ -62,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -105,6 +106,10 @@ import java.util.concurrent.TimeUnit
 private data class ChatMessage(val role: String, val content: String)
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+    companion object {
+        const val EXTRA_LAUNCHED_AS_ASSISTANT = "com.chronodisrupt.zoi.LAUNCHED_AS_ASSISTANT"
+    }
+
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
     private var ttsReady = false
@@ -118,6 +123,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         setContent {
             MaterialTheme {
                 JaneAppRoot(
+                    startVoiceInput = intent.getBooleanExtra(EXTRA_LAUNCHED_AS_ASSISTANT, false),
                     onSpeak = { speak(it) },
                     onListen = { onText, onError -> startListening(onText, onError) },
                     onStopListening = { speechRecognizer?.stopListening() },
@@ -182,6 +188,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
 @Composable
 private fun JaneAppRoot(
+    startVoiceInput: Boolean,
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
     onStopListening: () -> Unit,
@@ -197,6 +204,7 @@ private fun JaneAppRoot(
 
     if (introCompleted) {
         JaneChatScreen(
+            startVoiceInput = startVoiceInput,
             onSpeak = onSpeak,
             onListen = onListen,
             onStopListening = onStopListening,
@@ -292,6 +300,7 @@ private fun JaneWelcomeScreen(onContinue: () -> Unit) {
 
 @Composable
 private fun JaneChatScreen(
+    startVoiceInput: Boolean,
     onSpeak: (String) -> Unit,
     onListen: ((String) -> Unit, (String) -> Unit) -> Unit,
     onStopListening: () -> Unit,
@@ -845,6 +854,32 @@ private fun JaneChatScreen(
             )
         } else {
             errorText = "Microphone permission is needed for voice input."
+        }
+    }
+
+    LaunchedEffect(startVoiceInput) {
+        if (startVoiceInput) {
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                listening = true
+                status = "LISTENING"
+                errorText = ""
+                onListen(
+                    { spoken ->
+                        listening = false
+                        status = "THINKING"
+                        sendText(spoken)
+                    },
+                    { error ->
+                        listening = false
+                        status = "SYSTEM ONLINE"
+                        errorText = error
+                    }
+                )
+            } else {
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
         }
     }
 
