@@ -307,6 +307,7 @@ private fun JaneChatScreen(
             overlayActive = true
         }
     }
+    val messages = remember { mutableStateListOf<ChatMessage>() }
     var dialAfterContactPick by remember { mutableStateOf(false) }
     val contactPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -357,7 +358,6 @@ private fun JaneChatScreen(
             messages.add(ChatMessage("assistant", "File selected: ${displayName ?: "unnamed file"}. I have access to this file through the permission Android granted for this selection."))
         }
     }
-    val messages = remember { mutableStateListOf<ChatMessage>() }
     var input by remember { mutableStateOf("") }
     var selectedMode by remember { mutableStateOf("chat") }
     var modeMenuExpanded by remember { mutableStateOf(false) }
