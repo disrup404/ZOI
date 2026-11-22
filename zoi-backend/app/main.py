@@ -103,6 +103,7 @@ class ChatResponse(BaseModel):
     reply: str
     model: str
     action: dict | None = None
+    actions: list[dict] = Field(default_factory=list, max_length=4)
 
 class DeviceActionResponse(BaseModel):
     name: str
@@ -363,33 +364,47 @@ async def chat(payload: ChatRequest, request: Request):
         if isinstance(reply, list):
             reply = "".join(part.get("text", "") for part in reply if isinstance(part, dict))
 
-        action = None
+        actions = []
         tool_calls = assistant_message.get("tool_calls") or []
-        if tool_calls:
-            # Only the first allowlisted device action is dispatched. The model
-            # never controls Android intents, package names, or executable code.
-            first_call = tool_calls[0].get("function") or {}
-            action_name = first_call.get("name")
+        for tool_call in tool_calls:
+            function = tool_call.get("function") or {}
+            action_name = function.get("name")
             action_model = DEVICE_ACTION_SCHEMAS.get(action_name)
-            if action_model is not None:
-                raw_arguments = first_call.get("arguments") or "{}"
-                if isinstance(raw_arguments, str):
-                    import json
-                    raw_arguments = json.loads(raw_arguments)
-                if action_model == "app":
-                    from pydantic import TypeAdapter
-                    arguments = TypeAdapter(dict[str, str]).validate_python(raw_arguments)
-                    if not arguments.get("app_name", "").strip() or len(arguments["app_name"]) > 100:
-                        raise ValueError("Invalid app name")
-                elif isinstance(action_model, dict):
-                    arguments = {}
-                else:
-                    arguments = action_model.model_validate(raw_arguments).model_dump(exclude_none=True)
-                action = {"name": action_name, "arguments": arguments}
+            if action_model is None:
+                # Ignore non-device tools (for example, the research web search tool).
+                continue
+            if len(actions) >= 4:
+                raise ValueError("The model requested too many device actions")
+
+            raw_arguments = function.get("arguments") or "{}"
+            if isinstance(raw_arguments, str):
+                raw_arguments = json.loads(raw_arguments)
+            if not isinstance(raw_arguments, dict):
+                raise ValueError("Device action arguments must be an object")
+
+            if action_model == "app":
+                from pydantic import TypeAdapter
+                arguments = TypeAdapter(dict[str, str]).validate_python(raw_arguments)
+                app_name = arguments.get("app_name", "").strip()
+                if not app_name or len(app_name) > 100:
+                    raise ValueError("Invalid app name")
+                arguments["app_name"] = app_name
+            elif isinstance(action_model, dict):
+                if raw_arguments:
+                    raise ValueError("This device action does not accept arguments")
+                arguments = {}
+            else:
+                arguments = action_model.model_validate(raw_arguments).model_dump(exclude_none=True)
+
+            actions.append({"name": action_name, "arguments": arguments})
+
+        # Preserve the single-action field for older Android clients. New clients
+        # use the bounded actions array to review and execute multi-step plans.
+        action = actions[0] if len(actions) == 1 else None
 
         if not isinstance(reply, str):
             reply = ""
-        if not reply.strip() and action is None:
+        if not reply.strip() and not actions:
             raise ValueError("Empty model response")
 
         actual_model = data.get("model", selected_model)
@@ -401,7 +416,7 @@ async def chat(payload: ChatRequest, request: Request):
             actual_model,
             len(payload.history),
         )
-        return {"reply": reply.strip(), "model": actual_model, "action": action}
+        return {"reply": reply.strip(), "model": actual_model, "action": action, "actions": actions}
     except HTTPException:
         raise
     except httpx.TimeoutException:
