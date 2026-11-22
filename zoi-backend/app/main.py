@@ -79,6 +79,8 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
     mode: Literal["chat", "write", "code", "research", "think"] = DEFAULT_MODE
+    device_local_datetime: str | None = Field(default=None, max_length=50)
+    device_timezone: str | None = Field(default=None, max_length=80)
 
 
 class ChatResponse(BaseModel):
@@ -210,6 +212,15 @@ async def chat(payload: ChatRequest, request: Request):
     system_message = SYSTEM_PROMPT
     if mode_instructions[payload.mode]:
         system_message += "\n\n" + mode_instructions[payload.mode]
+    if payload.device_local_datetime and payload.device_timezone:
+        system_message += (
+            "\n\nThe user's device local date/time is "
+            + payload.device_local_datetime
+            + " in timezone "
+            + payload.device_timezone
+            + ". Use this context when interpreting relative dates and times. "
+            + "Do not assume the server timezone."
+        )
     messages = [{"role": "system", "content": system_message}]
     messages.extend({"role": item.role, "content": item.content} for item in payload.history[-20:])
     messages.append({"role": "user", "content": payload.message})
