@@ -46,7 +46,7 @@ class JaneScreenCaptureService : Service() {
             intent?.getParcelableExtra(EXTRA_RESULT_DATA) as? Intent
         }
 
-        if (resultCode != RESULT_OK || resultData == null) {
+        if (resultCode != android.app.Activity.RESULT_OK || resultData == null) {
             failCapture()
             return START_NOT_STICKY
         }
@@ -75,6 +75,7 @@ class JaneScreenCaptureService : Service() {
             val activeProjection = projection ?: throw IllegalStateException("Screen capture permission was unavailable")
 
             val metrics = DisplayMetrics()
+            val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
             @Suppress("DEPRECATION")
             windowManager.defaultDisplay.getRealMetrics(metrics)
             val width = metrics.widthPixels
@@ -106,13 +107,14 @@ class JaneScreenCaptureService : Service() {
                 }
             }, mainHandler)
 
+            val captureSurface = imageReader?.surface ?: throw IllegalStateException("Screen capture surface unavailable")
             virtualDisplay = activeProjection.createVirtualDisplay(
                 "JaneScreenContext",
                 width,
                 height,
                 metrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader?.surface,
+                captureSurface,
                 null,
                 mainHandler
             )
