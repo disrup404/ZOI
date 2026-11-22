@@ -688,6 +688,10 @@ private fun JaneChatScreen(
     fun sendText(rawText: String) {
         val text = rawText.trim()
         if (text.isEmpty() || busy) return
+        if (pendingTaskActions.isNotEmpty()) {
+            errorText = "Finish the current task plan or stop it before starting another."
+            return
+        }
 
         errorText = ""
         messages.add(ChatMessage("user", text))
@@ -1044,10 +1048,14 @@ private fun JaneChatScreen(
                                         messages.add(ChatMessage("assistant", "Step ${index + 1} of ${pendingTaskActions.size}: $result"))
                                         onSpeak(result)
                                         taskStepIndex = index + 1
-                                        taskStepStatus = if (taskStepIndex < pendingTaskActions.size) {
-                                            "Finish this step, return to Jane, then continue."
+                                        if (taskStepIndex >= pendingTaskActions.size) {
+                                            pendingTaskActions = emptyList()
+                                            taskStepIndex = 0
+                                            taskExecutionStarted = false
+                                            taskStepStatus = ""
+                                            messages.add(ChatMessage("assistant", "All planned steps have been launched. Complete any final confirmations in the apps Android opened."))
                                         } else {
-                                            "All steps have been launched. Complete any final confirmations in the apps Android opened."
+                                            taskStepStatus = "Finish this step, return to Jane, then continue."
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFA85D), contentColor = Color(0xFF17110D)),
