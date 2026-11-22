@@ -332,7 +332,7 @@ async def chat(payload: ChatRequest, request: Request):
         body["temperature"] = 0.7
 
     body["tools"] = DEVICE_TOOLS.copy()
-    body["max_tool_calls"] = 4
+    body["parallel_tool_calls"] = True
     if payload.mode == "research":
         body["tools"].append({
             "type": "openrouter:web_search",
