@@ -111,6 +111,7 @@ class CreateCalendarEventArgs(BaseModel):
 
 
 DEVICE_ACTION_SCHEMAS = {
+    "open_app": None,
     "open_contacts": {},
     "dial_contact": {},
     "open_file": {},
@@ -120,6 +121,13 @@ DEVICE_ACTION_SCHEMAS = {
 }
 
 DEVICE_TOOLS = [
+    {"type": "function", "function": {
+        "name": "open_app",
+        "description": "Open an installed Android app by its user-facing name. Use the app name only; never invent package IDs. If the user has not identified which app they mean, ask.",
+        "parameters": {"type": "object", "properties": {
+            "app_name": {"type": "string", "minLength": 1, "maxLength": 100},
+        }, "required": ["app_name"], "additionalProperties": False},
+    }},
     {"type": "function", "function": {
         "name": "open_contacts",
         "description": "Open Android's contact picker so the user can select a contact. Use when they want to browse or choose a contact.",
@@ -269,7 +277,12 @@ async def chat(payload: ChatRequest, request: Request):
                 if isinstance(raw_arguments, str):
                     import json
                     raw_arguments = json.loads(raw_arguments)
-                if isinstance(action_model, dict):
+                if action_model is None:
+                    from pydantic import TypeAdapter
+                    arguments = TypeAdapter(dict[str, str]).validate_python(raw_arguments)
+                    if not arguments.get("app_name", "").strip() or len(arguments["app_name"]) > 100:
+                        raise ValueError("Invalid app name")
+                elif isinstance(action_model, dict):
                     arguments = {}
                 else:
                     arguments = action_model.model_validate(raw_arguments).model_dump(exclude_none=True)
