@@ -355,7 +355,18 @@ private fun JaneChatScreen(
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
             } catch (_: Exception) { null }
-            messages.add(ChatMessage("assistant", "File selected: ${displayName ?: "unnamed file"}. I have access to this file through the permission Android granted for this selection."))
+            val label = displayName ?: "unnamed file"
+            try {
+                val mimeType = context.contentResolver.getType(fileUri) ?: "*/*"
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(fileUri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(viewIntent)
+                messages.add(ChatMessage("assistant", "Opening $label in a compatible app. Android only shared the file you selected."))
+            } catch (_: Exception) {
+                messages.add(ChatMessage("assistant", "I selected $label, but no compatible app could open it."))
+            }
         }
     }
     var input by remember { mutableStateOf("") }
@@ -414,14 +425,14 @@ private fun JaneChatScreen(
         when (val action = parseDeviceCommand(text)) {
             DeviceCommand.OpenContacts -> {
                 dialAfterContactPick = false
-                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
                 messages.add(ChatMessage("assistant", "Choose a contact. I’ll only receive the contact details you select."))
                 onSpeak("Choose a contact.")
                 return
             }
             DeviceCommand.DialContact -> {
                 dialAfterContactPick = true
-                contactPicker.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                contactPicker.launch(Intent(Intent.ACTION_PICK).setType(ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE))
                 messages.add(ChatMessage("assistant", "Choose the contact. I’ll open the dialler with their number; you still place the call."))
                 onSpeak("Choose the contact.")
                 return
