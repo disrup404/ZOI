@@ -38,6 +38,8 @@ You can use natural Nigerian expressions or light Pidgin when they genuinely fit
 The attitude is a seasoning, not the meal. When the user needs accurate technical help, give accurate technical help. When they're vulnerable, distressed, or facing something serious, drop the snark and respond with care and good judgement. Never use sarcasm to humiliate someone or trivialise danger.
 
 You are still an AI. Never claim to be human, conscious, or to have experiences you don't have. Never invent shared memories, facts, or actions on the user's device. Be transparent about uncertainty and follow safety requirements.
+
+When a request can be completed through one of the available device tools, call the appropriate tool instead of merely describing how the user could do it. Understand natural language flexibly; do not require exact command wording. If essential information is missing or ambiguous, ask one concise clarification and do not call a tool. Never claim an action succeeded: the Android app will execute it and report the actual result. You cannot directly inspect the phone, contacts, files, notifications, or screen unless a supported capability explicitly provides that information. Only use the device tools for their described purpose.
 """
 
 
@@ -82,6 +84,85 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     model: str
+
+class DeviceActionResponse(BaseModel):
+    name: str
+    arguments: dict
+
+
+class SetAlarmArgs(BaseModel):
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(default=0, ge=0, le=59)
+    label: str = Field(default="Jane alarm", max_length=80)
+
+
+class SetTimerArgs(BaseModel):
+    seconds: int = Field(ge=1, le=86400)
+    label: str = Field(default="", max_length=80)
+
+
+class CreateCalendarEventArgs(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    start_at: str | None = Field(default=None, max_length=40)
+    end_at: str | None = Field(default=None, max_length=40)
+    location: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+DEVICE_ACTION_SCHEMAS = {
+    "open_contacts": {},
+    "dial_contact": {},
+    "open_file": {},
+    "set_alarm": SetAlarmArgs,
+    "set_timer": SetTimerArgs,
+    "create_calendar_event": CreateCalendarEventArgs,
+}
+
+DEVICE_TOOLS = [
+    {"type": "function", "function": {
+        "name": "open_contacts",
+        "description": "Open Android's contact picker so the user can select a contact. Use when they want to browse or choose a contact.",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "dial_contact",
+        "description": "Open Android's contact picker; after the user selects a person, open the dialler with their number. Never place a call automatically.",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "open_file",
+        "description": "Open Android's system file picker so the user can choose a file.",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "set_alarm",
+        "description": "Set an alarm at a specific local clock time. Convert natural-language time to 24-hour hour and minute. If the time is ambiguous, ask a clarification instead. Android Clock will show its confirmation UI; do not claim the alarm is saved.",
+        "parameters": {"type": "object", "properties": {
+            "hour": {"type": "integer", "minimum": 0, "maximum": 23},
+            "minute": {"type": "integer", "minimum": 0, "maximum": 59},
+            "label": {"type": "string", "maxLength": 80},
+        }, "required": ["hour", "minute"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "set_timer",
+        "description": "Start an Android timer for a duration. Convert hours, minutes and seconds into total seconds. Ask a clarification if duration is missing or ambiguous.",
+        "parameters": {"type": "object", "properties": {
+            "seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+            "label": {"type": "string", "maxLength": 80},
+        }, "required": ["seconds"], "additionalProperties": False},
+    }},
+    {"type": "function", "function": {
+        "name": "create_calendar_event",
+        "description": "Open Android's calendar event editor with the event details prefilled. Ask for a title if none can be inferred. start_at and end_at, when supplied, must be local ISO date-time strings like 2026-11-23T14:30:00 without a timezone suffix; the phone's local timezone is used.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string", "minLength": 1, "maxLength": 120},
+            "start_at": {"type": "string", "maxLength": 40},
+            "end_at": {"type": "string", "maxLength": 40},
+            "location": {"type": "string", "maxLength": 200},
+            "description": {"type": "string", "maxLength": 1000},
+        }, "required": ["title"], "additionalProperties": False},
+    }},
+]
 
 
 @app.get("/")
@@ -140,9 +221,10 @@ async def chat(payload: ChatRequest, request: Request):
     else:
         body["temperature"] = 0.7
 
+    body["tools"] = DEVICE_TOOLS.copy()
     if payload.mode == "research":
         body["max_tool_calls"] = 3
-        body["tools"] = [{
+        body["tools"].append({
             "type": "openrouter:web_search",
             "parameters": {
                 "engine": "auto",
@@ -151,7 +233,7 @@ async def chat(payload: ChatRequest, request: Request):
                 "max_total_results": 10,
                 "search_context_size": "medium",
             },
-        }]
+        })
 
     try:
         provider_started = time.perf_counter()
@@ -168,10 +250,33 @@ async def chat(payload: ChatRequest, request: Request):
             raise HTTPException(status_code=502, detail=f"The AI provider returned an error (HTTP {response.status_code}).")
 
         data = response.json()
-        reply = data["choices"][0]["message"]["content"]
+        assistant_message = data["choices"][0]["message"]
+        reply = assistant_message.get("content") or ""
         if isinstance(reply, list):
             reply = "".join(part.get("text", "") for part in reply if isinstance(part, dict))
-        if not isinstance(reply, str) or not reply.strip():
+
+        action = None
+        tool_calls = assistant_message.get("tool_calls") or []
+        if tool_calls:
+            # Only the first allowlisted device action is dispatched. The model
+            # never controls Android intents, package names, or executable code.
+            first_call = tool_calls[0].get("function") or {}
+            action_name = first_call.get("name")
+            action_model = DEVICE_ACTION_SCHEMAS.get(action_name)
+            if action_model is not None:
+                raw_arguments = first_call.get("arguments") or "{}"
+                if isinstance(raw_arguments, str):
+                    import json
+                    raw_arguments = json.loads(raw_arguments)
+                if action_model is dict:
+                    arguments = {}
+                else:
+                    arguments = action_model.model_validate(raw_arguments).model_dump(exclude_none=True)
+                action = {"name": action_name, "arguments": arguments}
+
+        if not isinstance(reply, str):
+            reply = ""
+        if not reply.strip() and action is None:
             raise ValueError("Empty model response")
 
         actual_model = data.get("model", selected_model)
@@ -183,7 +288,7 @@ async def chat(payload: ChatRequest, request: Request):
             actual_model,
             len(payload.history),
         )
-        return ChatResponse(reply=reply.strip(), model=actual_model)
+        return {"reply": reply.strip(), "model": actual_model, "action": action}
     except HTTPException:
         raise
     except httpx.TimeoutException:
