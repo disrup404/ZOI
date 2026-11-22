@@ -111,7 +111,7 @@ class CreateCalendarEventArgs(BaseModel):
 
 
 DEVICE_ACTION_SCHEMAS = {
-    "open_app": None,
+    "open_app": "app",
     "open_contacts": {},
     "dial_contact": {},
     "open_file": {},
@@ -277,7 +277,7 @@ async def chat(payload: ChatRequest, request: Request):
                 if isinstance(raw_arguments, str):
                     import json
                     raw_arguments = json.loads(raw_arguments)
-                if action_model is None:
+                if action_model == "app":
                     from pydantic import TypeAdapter
                     arguments = TypeAdapter(dict[str, str]).validate_python(raw_arguments)
                     if not arguments.get("app_name", "").strip() or len(arguments["app_name"]) > 100:
