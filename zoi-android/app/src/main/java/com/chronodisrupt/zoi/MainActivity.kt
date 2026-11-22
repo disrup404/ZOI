@@ -301,6 +301,26 @@ private fun JaneChatScreen(
     val preferences = remember {
         context.getSharedPreferences("jane_preferences", android.content.Context.MODE_PRIVATE)
     }
+    val assistantRoleManager = if (android.os.Build.VERSION.SDK_INT >= 29) {
+        context.getSystemService(android.app.role.RoleManager::class.java)
+    } else null
+    var isDefaultAssistant by remember {
+        mutableStateOf(
+            assistantRoleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) == true
+        )
+    }
+    val assistantRoleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        isDefaultAssistant = assistantRoleManager?.isRoleHeld(
+            android.app.role.RoleManager.ROLE_ASSISTANT
+        ) == true
+        Toast.makeText(
+            context,
+            if (isDefaultAssistant) "Jane is now your default assistant." else "Jane wasn't selected as the default assistant.",
+            Toast.LENGTH_LONG
+        ).show()
+    }
     var notificationAccess by remember {
         mutableStateOf(JaneNotificationListener.hasNotificationAccess(context))
     }
@@ -821,6 +841,30 @@ private fun JaneChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(if (wakeWordActive) "VOICE ACTIVATION ON" else "VOICE ACTIVATION", color = if (wakeWordActive) Color(0xFF69DDBD) else Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 0.4.sp)
+                }
+                TextButton(
+                    onClick = {
+                        val manager = assistantRoleManager
+                        if (manager != null && manager.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT)) {
+                            assistantRoleLauncher.launch(
+                                manager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_ASSISTANT)
+                            )
+                        } else {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+                            } catch (_: Exception) {
+                                messages.add(ChatMessage("assistant", "This Android version doesn't expose the assistant selection screen. Check Settings for Default apps or Digital assistant app."))
+                            }
+                        }
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        if (isDefaultAssistant) "JANE DEFAULT" else "SET DEFAULT",
+                        color = if (isDefaultAssistant) Color(0xFF69DDBD) else Color(0xFF8291A3),
+                        fontSize = 9.sp,
+                        letterSpacing = 0.4.sp
+                    )
                 }
                 TextButton(
                     onClick = {
