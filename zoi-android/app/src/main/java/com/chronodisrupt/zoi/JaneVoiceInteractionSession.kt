@@ -46,7 +46,6 @@ class JaneVoiceInteractionSession(context: android.content.Context) :
             setOnClickListener {
                 val launch = Intent(context, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    putExtra(MainActivity.EXTRA_LAUNCHED_AS_ASSISTANT, true)
                 }
                 startVoiceActivity(launch)
                 hide()
