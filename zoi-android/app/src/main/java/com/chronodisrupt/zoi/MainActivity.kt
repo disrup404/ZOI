@@ -297,6 +297,21 @@ private fun JaneChatScreen(
     onStopSpeaking: () -> Unit
 ) {
     val context = LocalContext.current
+    val preferences = remember {
+        context.getSharedPreferences("jane_preferences", android.content.Context.MODE_PRIVATE)
+    }
+    var notificationAccess by remember {
+        mutableStateOf(JaneNotificationListener.hasNotificationAccess(context))
+    }
+    var notificationContextEnabled by remember {
+        mutableStateOf(preferences.getBoolean("notification_context_enabled", false))
+    }
+    val notificationSettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        notificationAccess = JaneNotificationListener.hasNotificationAccess(context)
+        if (!notificationAccess) notificationContextEnabled = false
+    }
     var wakeWordActive by remember { mutableStateOf(false) }
     var overlayActive by remember { mutableStateOf(false) }
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
@@ -509,6 +524,21 @@ private fun JaneChatScreen(
             .put("mode", selectedMode)
             .put("device_local_datetime", java.time.ZonedDateTime.now().toString())
             .put("device_timezone", java.time.ZoneId.systemDefault().id)
+
+        if (notificationContextEnabled && JaneNotificationListener.hasNotificationAccess(context)) {
+            val notificationContext = JSONArray()
+            JaneNotificationListener.recentNotifications().forEach { item ->
+                notificationContext.put(
+                    JSONObject()
+                        .put("app", item.app)
+                        .put("package", item.packageName)
+                        .put("title", item.title)
+                        .put("text", item.text)
+                        .put("posted_at", item.postedAt)
+                )
+            }
+            payload.put("notification_context", notificationContext)
+        }
         val requestBody = payload.toString().toRequestBody(
             "application/json; charset=utf-8".toMediaType()
         )
@@ -633,6 +663,33 @@ private fun JaneChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
                 ) {
                     Text(if (wakeWordActive) "VOICE ACTIVATION ON" else "VOICE ACTIVATION", color = if (wakeWordActive) Color(0xFF69DDBD) else Color(0xFF8291A3), fontSize = 9.sp, letterSpacing = 0.4.sp)
+                }
+                TextButton(
+                    onClick = {
+                        if (!JaneNotificationListener.hasNotificationAccess(context)) {
+                            notificationSettingsLauncher.launch(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        } else {
+                            notificationContextEnabled = !notificationContextEnabled
+                            preferences.edit().putBoolean("notification_context_enabled", notificationContextEnabled).apply()
+                            Toast.makeText(
+                                context,
+                                if (notificationContextEnabled) "Recent notifications may now be shared with Jane's AI when you chat." else "Notification sharing is off.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        when {
+                            !notificationAccess -> "NOTIF ACCESS"
+                            notificationContextEnabled -> "NOTIFS SHARED"
+                            else -> "NOTIFS OFF"
+                        },
+                        color = if (notificationContextEnabled && notificationAccess) Color(0xFF69DDBD) else Color(0xFF8291A3),
+                        fontSize = 9.sp,
+                        letterSpacing = 0.4.sp
+                    )
                 }
                 TextButton(
                     onClick = {
