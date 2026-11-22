@@ -419,6 +419,7 @@ private fun JaneChatScreen(
                 val mimeType = context.contentResolver.getType(fileUri).orEmpty()
                 val extension = label.substringAfterLast('.', "").lowercase(Locale.ROOT)
                 val textLike = mimeType.startsWith("text/") ||
+                    mimeType in setOf("application/json", "application/xml", "application/csv") ||
                     extension in setOf("txt", "md", "csv", "json", "xml", "log")
                 if (!textLike) {
                     messages.add(ChatMessage("assistant", "I can read plain-text, Markdown, CSV, JSON, XML and log files for now. I can't extract this file type yet."))
@@ -511,6 +512,7 @@ private fun JaneChatScreen(
                 "Choose a file. Android will grant access only to the file you select."
             }
             "read_text_file" -> {
+                pendingFileContext = null
                 readSelectedTextFile = true
                 filePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     addCategory(Intent.CATEGORY_OPENABLE)
