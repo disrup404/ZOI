@@ -503,7 +503,12 @@ private fun JaneChatScreen(
         messages.dropLast(1).takeLast(12).forEach { item ->
             history.put(JSONObject().put("role", item.role).put("content", item.content))
         }
-        val payload = JSONObject().put("message", text).put("history", history).put("mode", selectedMode)
+        val payload = JSONObject()
+            .put("message", text)
+            .put("history", history)
+            .put("mode", selectedMode)
+            .put("device_local_datetime", java.time.ZonedDateTime.now().toString())
+            .put("device_timezone", java.time.ZoneId.systemDefault().id)
         val requestBody = payload.toString().toRequestBody(
             "application/json; charset=utf-8".toMediaType()
         )
