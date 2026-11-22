@@ -468,6 +468,46 @@ private fun JaneChatScreen(
                     }
                 }
             }
+            "compose_sms" -> {
+                val phoneNumber = args.optString("phone_number").trim()
+                val message = args.optString("message").trim()
+                if (phoneNumber.length < 3 || message.isBlank()) {
+                    "I need a valid phone number and message before opening the SMS composer."
+                } else {
+                    try {
+                        val intent = Intent(
+                            Intent.ACTION_SENDTO,
+                            Uri.parse("smsto:${Uri.encode(phoneNumber)}")
+                        ).putExtra("sms_body", message)
+                        context.startActivity(intent)
+                        "I've prepared the text in your messaging app. Review it and tap Send when you're ready."
+                    } catch (_: Exception) {
+                        "I couldn't open an SMS app on this phone."
+                    }
+                }
+            }
+            "compose_email" -> {
+                val email = args.optString("email").trim()
+                val subject = args.optString("subject")
+                val body = args.optString("body")
+                if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches() || body.isBlank()) {
+                    "I need a valid email address and message before opening the email composer."
+                } else {
+                    try {
+                        val intent = Intent(
+                            Intent.ACTION_SENDTO,
+                            Uri.parse("mailto:${Uri.encode(email)}")
+                        ).apply {
+                            putExtra(Intent.EXTRA_SUBJECT, subject)
+                            putExtra(Intent.EXTRA_TEXT, body)
+                        }
+                        context.startActivity(intent)
+                        "I've prepared the email. Review it and send it yourself."
+                    } catch (_: Exception) {
+                        "I couldn't open an email app on this phone."
+                    }
+                }
+            }
             "create_calendar_event" -> {
                 val title = args.optString("title").trim()
                 if (title.isBlank()) {
